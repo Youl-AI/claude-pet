@@ -208,7 +208,12 @@ $mainSessionFile = Register-SyntheticSession -SessionId $mainSessionId -Transcri
 function Add-ToolUseLine {
     param([string]$TranscriptPath, [string]$ToolName = 'Bench')
     $line = '{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"t","name":"' + $ToolName + '","input":{}}]}}'
-    Add-Content -Path $TranscriptPath -Value $line -Encoding utf8
+    # Add-Content -Encoding utf8 는 Windows PowerShell 5.1에서 대상 파일이 비어 있을 때
+    # 첫 호출에서 UTF-8 BOM을 끼워 넣는다(task-13 조사에서 직접 재현·확인함, 문서
+    # §3.1). 이 함수가 쓰는 대상은 항상 New-Item으로 갓 만든 빈 트랜스크립트 파일이라
+    # 그 BOM-on-first-write 함정을 그대로 밟는다. BOM 없는 UTF-8로 직접 추가해 피한다.
+    $utf8NoBom = [System.Text.UTF8Encoding]::new($false)
+    [System.IO.File]::AppendAllText($TranscriptPath, $line + [Environment]::NewLine, $utf8NoBom)
 }
 
 function Measure-WriteLatencySamples {
@@ -505,6 +510,15 @@ Write-Host ""
 # 실수) 렌더링을 안 하고 있다는 신호다 — 그대로 보고하지 않고 표시한다.
 # (참고: 잠듦 CPU 자체가 사실상 0에 가까울 수 있어, 이 비율 검사는 절대적
 # 하한이 아니라 "명백히 이상함"을 잡기 위한 느슨한 신호다.)
+#
+# 1.5배라는 배수 자체에 근거: PetHost의 1초 폴링은 잠듦 상태에서도 계속 돌아
+# 잠듦·활동중 둘 다를 지배하는 같은 고정비용이고(측정 문서 §3.2), 활동중이 그
+# 위에 얹는 한계 비용(제자리 Reading/Writing 애니메이션)은 작다 — 그래서 활동중이
+# 잠듦을 몇 배씩 웃돌 것으로 기대할 근거는 없다. 반면 배회(위치 이동 + 레이어드
+# 윈도우 재합성)는 그 고정비용 위에 훨씬 큰 추가 작업을 얹으므로 뚜렷하게 높아야
+# 한다. 1.5배는 "명백한 붕괴(펫이 죽었다/잠들었다)"만 잡아내려는 느슨한 문턱이지,
+# 정상 범위를 좁게 규정하는 통계적 임계값이 아니다 — 활동중 대 잠듦 비교는 이
+# 문턱 부근에서 실행마다 뒤집힐 수 있다(측정 문서 §3.5, §4.5).
 if ($wanderResult.PerCorePercent -le ($sleepResult.PerCorePercent * 1.5)) {
     Write-Suspicious ("배회 CPU({0:N3}%)가 잠듦 CPU({1:N3}%)보다 뚜렷하게 높지 않습니다. 펫이 실제로 애니메이션 중인지 재확인이 필요합니다." -f `
         $wanderResult.PerCorePercent, $sleepResult.PerCorePercent)
