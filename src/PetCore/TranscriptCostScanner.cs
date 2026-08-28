@@ -9,7 +9,7 @@ namespace PetCore;
 /// 34,254개 x 약 100 bytes = 3.4 MB 이고 1년이면 40 MB 가 된다 — 펫 전체가 75 MB 인데 그
 /// 절반이 id 목록이 되므로 그렇게 하지 않는다 (스펙 §3.3).
 /// </summary>
-public sealed class TranscriptCostScanner
+public class TranscriptCostScanner
 {
     /// <summary>
     /// 절대 던지지 않는다. 읽을 수 없으면 0을 돌려준다.
@@ -18,7 +18,7 @@ public sealed class TranscriptCostScanner
     /// 지워질 수도 있으며, 권한이 바뀔 수도 있다. 예외 종류를 하나씩 열거하는 방식은 이
     /// 저장소에서 이미 세 번 실패했다.
     /// </summary>
-    public decimal ScanFile(string path)
+    public virtual decimal ScanFile(string path)
     {
         try
         {
