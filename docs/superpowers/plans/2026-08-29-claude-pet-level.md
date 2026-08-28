@@ -62,7 +62,7 @@ C4 = C3 + 8999 × M4 = 25,133,372
 | 경로 | 무엇을 |
 |---|---|
 | `src/PetApp/PetApp.csproj` | `flash.png` 리소스 등록 |
-| `src/PetApp/PetWindow.xaml` | 폭 64→128, Canvas로 바꾸고 Plate/Flash 이미지 추가 |
+| `src/PetApp/PetWindow.xaml` | 폭 64→112, Canvas로 바꾸고 Plate/Flash 이미지 추가 |
 | `src/PetApp/PetWindow.xaml.cs` | 명패 갱신, 이펙트 재생 |
 | `src/PetApp/PetHost.cs` | `UsageTracker`를 30초 주기로 호출 |
 
@@ -1665,7 +1665,7 @@ git commit -m "feat: add the level-up ring effect sprite"
 ### Task 9: 창 배선
 
 **Files:**
-- Modify: `src/PetApp/PetWindow.xaml`
+- Modify: `src/PetApp/PetWindow.xaml` (폭 64 -> 112, Canvas 로 교체)
 - Modify: `src/PetApp/PetWindow.xaml.cs`
 
 **Interfaces:**
@@ -1687,20 +1687,24 @@ git commit -m "feat: add the level-up ring effect sprite"
         ShowInTaskbar="False"
         ShowActivated="False"
         ResizeMode="NoResize"
-        Width="128" Height="64">
-    <!-- 창이 128 로 넓어졌다. 오른쪽 64x64 가 펫이고 왼쪽이 명패 자리다.
-         Bounce/clamp 는 창 전체 폭을 쓰므로 명패도 화면 밖으로 나가지 않는다. -->
+        Width="112" Height="64">
+    <!-- 창이 64 에서 112 로 넓어졌다. 오른쪽 64x64 가 펫이고, 왼쪽 48px 이 명패 자리다.
+         48 은 필요한 최소치에서 올림한 값이다: 4자리 명패 19px x2 = 38, 간격 6px x2 = 12,
+         몸의 왼쪽 여백 4px x2 = 8 -> 38 + 12 - 8 = 42.
+         창이 넓어지면 Bounce/clamp 가 쓰는 Width 도 커진다. 펫은 오른쪽 끝까지는 그대로
+         가지만(창 안에서 오른쪽에 붙어 있으므로), 왼쪽으로는 48px 못 간다 - 그 자리가
+         명패이기 때문이고, 명패가 화면 밖으로 나가지 않게 하려면 필요한 동작이다. -->
     <Canvas>
         <Image x:Name="Plate"
                RenderOptions.BitmapScalingMode="NearestNeighbor"
                SnapsToDevicePixels="True" />
         <Image x:Name="Sprite"
-               Canvas.Left="64" Width="64" Height="64"
+               Canvas.Left="48" Width="64" Height="64"
                RenderOptions.BitmapScalingMode="NearestNeighbor"
                SnapsToDevicePixels="True" />
         <!-- 이펙트는 상태 스프라이트 위에 얹힌다. 상태 애니메이션과 별개의 타임라인이다. -->
         <Image x:Name="Flash"
-               Canvas.Left="64" Width="64" Height="64"
+               Canvas.Left="48" Width="64" Height="64"
                Visibility="Collapsed"
                RenderOptions.BitmapScalingMode="NearestNeighbor"
                SnapsToDevicePixels="True" />
@@ -1717,7 +1721,7 @@ git commit -m "feat: add the level-up ring effect sprite"
 ```csharp
     // --- 레벨 표시 ---
     private const double PixelScale = 2.0;          // 스프라이트 1px = 화면 2px
-    private const int PetCellOriginX = 64;          // Canvas 안에서 펫이 시작하는 x (화면 px)
+    private const int PetCellOriginX = 48;          // Canvas 안에서 펫이 시작하는 x (화면 px)
     private const int PetBodyLeftPx = 4;            // 스프라이트 좌표계에서 몸의 왼쪽 첫 픽셀
 
     private const int FlashFrames = 8;
@@ -1975,6 +1979,12 @@ git commit -m "feat: refresh the level every 30 seconds off the render path"
 
 **남은 위험**
 
-- Task 9 의 창 폭 변경(64 → 128)은 `Bounce` 와 clamp 가 쓰는 `Width` 를 바꾼다. 펫이 오른쪽
-  끝에서 64px 일찍 멈추게 되는데, 이는 명패가 화면 왼쪽 밖으로 나가지 않게 하는 데 필요한
-  동작이므로 의도된 것이다. Task 9 Step 4 에서 좌우 양 끝까지 걸어가 확인한다.
+- Task 9 의 창 폭 변경(64 → 112)은 `Bounce` 와 clamp 가 쓰는 `Width` 를 바꾼다. `_x` 는
+  **창의** 왼쪽 좌표이고 펫은 창 안에서 오른쪽에 붙어 있으므로:
+  - 오른쪽 — `_x` 최대가 `work.Right - 112` 이고 펫은 창의 x 48..112 를 차지하니 펫의
+    오른쪽 끝이 정확히 `work.Right` 에 닿는다. **이전과 동일하다.**
+  - 왼쪽 — `_x` 최소가 `work.Left` 이므로 펫의 왼쪽은 `work.Left + 48` 까지만 간다.
+    **48px 못 간다.** 그 자리가 명패이고, 명패가 화면 밖으로 나가지 않게 하려면 필요하다.
+
+  Task 9 Step 4 에서 좌우 양 끝까지 걸어가 확인한다: 오른쪽은 화면 끝에 닿아야 하고,
+  왼쪽은 명패가 잘리지 않은 채로 멈춰야 한다.
