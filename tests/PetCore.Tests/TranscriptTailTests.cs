@@ -119,4 +119,65 @@ public class TranscriptTailTests : IDisposable
         File.WriteAllText(_path, ToolUseLine + "\n");
         Assert.Single(tail.ReadNew());
     }
+
+    [Fact]
+    public void SkipToEnd_ThenReadNew_ReturnsNothing_ForExistingContent()
+    {
+        File.WriteAllText(_path, ToolUseLine + "\n" + ToolUseLine + "\n");
+        var tail = new TranscriptTail(_path);
+
+        tail.SkipToEnd();
+
+        Assert.Empty(tail.ReadNew());
+    }
+
+    [Fact]
+    public void SkipToEnd_ContentAppendedAfterSkip_IsStillDelivered()
+    {
+        File.WriteAllText(_path, ToolUseLine + "\n");
+        var tail = new TranscriptTail(_path);
+
+        tail.SkipToEnd();
+        Assert.Empty(tail.ReadNew());
+
+        File.AppendAllText(_path, ToolUseLine + "\n");
+        var events = tail.ReadNew();
+
+        Assert.Single(events);
+        Assert.Equal(TranscriptEventKind.ToolUse, events[0].Kind);
+    }
+
+    [Fact]
+    public void SkipToEnd_DoesNotSkipPartiallyWrittenTrailingLine_DeliveredOnceCompleted()
+    {
+        // 마지막 줄이 아직 개행으로 끝나지 않은 채로 SkipToEnd가 호출되면,
+        // 그 미완성 줄은 건너뛰어져서 영영 유실되면 안 된다 — 완성된 뒤
+        // 다음 ReadNew()에서 정확히 한 번 전달돼야 한다.
+        File.WriteAllText(_path, ToolUseLine + "\n");
+        var fullLine = ToolUseLine + "\n";
+        File.AppendAllText(_path, fullLine[..(fullLine.Length / 2)]);
+
+        var tail = new TranscriptTail(_path);
+        tail.SkipToEnd();
+
+        // 아직 미완성이므로 이 시점엔 아무것도 없다.
+        Assert.Empty(tail.ReadNew());
+
+        File.AppendAllText(_path, fullLine[(fullLine.Length / 2)..]);
+        var events = tail.ReadNew();
+
+        Assert.Single(events);
+        Assert.Equal(TranscriptEventKind.ToolUse, events[0].Kind);
+    }
+
+    [Fact]
+    public void SkipToEnd_MissingFile_DoesNotThrow_AndLeavesPositionAtZero()
+    {
+        var tail = new TranscriptTail(Path.Combine(Path.GetTempPath(), "does-not-exist.jsonl"));
+
+        var exception = Record.Exception(() => tail.SkipToEnd());
+
+        Assert.Null(exception);
+        Assert.Equal(0, tail.Position);
+    }
 }
