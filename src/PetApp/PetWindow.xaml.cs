@@ -1,6 +1,8 @@
 ﻿using System;
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Interop;
+using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using PetCore;
 
@@ -45,6 +47,18 @@ public partial class PetWindow : Window
     private bool _isFullscreenHiding;
     private IntPtr _hwnd;
 
+    // --- 레벨 표시 ---
+    private const double PixelScale = 2.0;          // 스프라이트 1px = 화면 2px
+    private const int PetCellOriginX = 48;          // Canvas 안에서 펫이 시작하는 x (화면 px)
+    private const int PetBodyLeftPx = 4;            // 스프라이트 좌표계에서 몸의 왼쪽 첫 픽셀
+
+    private const int FlashFrames = 8;
+    private static readonly Uri FlashUri = new("pack://application:,,,/assets/flash.png", UriKind.Absolute);
+
+    private int _level;
+    private BitmapSource[]? _flashFrames;
+    private int _flashFrame = -1;                   // -1 = 재생 중 아님
+
     public PetWindow()
     {
         InitializeComponent();
@@ -75,6 +89,9 @@ public partial class PetWindow : Window
         // 즉 하단 15% 띠 안에 가장 확실히 들어오는 위치다. 띠 높이가 창
         // 높이보다 작을 만큼 화면이 낮은 경우에도 이게 달성 가능한 최선이다.
         Top = work.Bottom - Height;
+
+        // 이펙트 프레임을 미리 잘라 얼려 둔다. 재생 중에 자르면 12fps 루프에서 할당이 생긴다.
+        _flashFrames = LoadFlashFrames();
     }
 
     private void Tick()
@@ -96,6 +113,10 @@ public partial class PetWindow : Window
             return;
         }
         if (Visibility != Visibility.Visible) Visibility = Visibility.Visible;
+
+        // 레벨업 이펙트는 상태와 무관한 자기 타임라인으로 돈다. 잠듦 반환보다 앞에 있어야
+        // 잠든 채로 레벨이 올라도 재생된다.
+        AdvanceFlash();
 
         // 잠들었는지 여부는 Left/Top/Sprite.Source를 조금이라도 건드리기
         // 전에 확정한다 — 그래야 잠든 펫은 위치 계산도, 창 재배치도, 스프라
@@ -185,5 +206,94 @@ public partial class PetWindow : Window
         _x += _direction * pixelsPerTick;
         if (_x <= work.Left) { _x = work.Left; _direction = 1; }
         if (_x >= work.Right - Width) { _x = work.Right - Width; _direction = -1; }
+    }
+
+    /// <summary>
+    /// 레벨을 갱신한다. leveledUp 이면 이펙트를 한 번 재생한다.
+    /// PetHost 가 30초 주기로 부른다 — 렌더 스레드에서 파일을 읽지 않기 위해서다.
+    /// </summary>
+    public void SetLevel(int level, bool leveledUp)
+    {
+        // 백그라운드 폴링 스레드에서 호출될 수 있다. WPF 요소는 만든 스레드에서만
+        // 건드릴 수 있으므로, UI 스레드가 아니면 큐에 넣고 즉시 돌아온다 —
+        // 호출자를 막지 않고, 렌더 스레드 밖에서 요소를 건드리지도 않는다.
+        if (!Dispatcher.CheckAccess())
+        {
+            Dispatcher.BeginInvoke(new Action(() => SetLevel(level, leveledUp)));
+            return;
+        }
+
+        if (level != _level)
+        {
+            _level = level;
+            Plate.Source = PlateRenderer.Render(level);
+
+            // 명패는 펫 왼쪽에, 간격 GapPx 를 두고 붙는다. 몸의 왼쪽 첫 픽셀이 셀 안에서
+            // PetBodyLeftPx 이므로 그만큼 더해서 판의 오른쪽 끝을 잡는다.
+            var plateWidthPx = PlateRenderer.PlateWidthFor(level) * PixelScale;
+            var petBodyLeftPx = PetCellOriginX + PetBodyLeftPx * PixelScale;
+            Canvas.SetLeft(Plate, petBodyLeftPx - PlateRenderer.GapPx * PixelScale - plateWidthPx);
+
+            Plate.Width = plateWidthPx;
+            Plate.Height = PlateRenderer.PlateHeight * PixelScale;
+            // 판의 세로 중심을 몸통 눈높이에 맞춘다 (스프라이트 y 15..23 구간).
+            Canvas.SetTop(Plate, 15 * PixelScale);
+        }
+
+        if (leveledUp && _flashFrames is not null)
+            _flashFrame = 0;
+    }
+
+    private static BitmapSource[]? LoadFlashFrames()
+    {
+        // 리소스가 없거나 크기가 다르면 이펙트만 포기한다. 펫은 계속 돈다.
+        try
+        {
+            var sheet = new BitmapImage();
+            sheet.BeginInit();
+            sheet.CacheOption = BitmapCacheOption.OnLoad;
+            sheet.UriSource = FlashUri;
+            sheet.EndInit();
+            sheet.Freeze();
+
+            if (sheet.PixelHeight != SpriteSheet.FrameSize
+                || sheet.PixelWidth != SpriteSheet.FrameSize * FlashFrames)
+                return null;
+
+            var frames = new BitmapSource[FlashFrames];
+            for (var i = 0; i < FlashFrames; i++)
+            {
+                var crop = new CroppedBitmap(sheet,
+                    new Int32Rect(i * SpriteSheet.FrameSize, 0,
+                                  SpriteSheet.FrameSize, SpriteSheet.FrameSize));
+                crop.Freeze();
+                frames[i] = crop;
+            }
+            return frames;
+        }
+        catch (Exception)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>이펙트를 한 프레임 진행한다. Tick 에서 부른다.</summary>
+    private void AdvanceFlash()
+    {
+        if (_flashFrame < 0 || _flashFrames is null)
+        {
+            if (Flash.Visibility != Visibility.Collapsed) Flash.Visibility = Visibility.Collapsed;
+            return;
+        }
+
+        Flash.Source = _flashFrames[_flashFrame];
+        if (Flash.Visibility != Visibility.Visible) Flash.Visibility = Visibility.Visible;
+
+        _flashFrame++;
+        if (_flashFrame >= FlashFrames)
+        {
+            _flashFrame = -1;
+            Flash.Visibility = Visibility.Collapsed;
+        }
     }
 }
