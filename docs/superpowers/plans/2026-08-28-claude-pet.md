@@ -414,23 +414,43 @@ public class TranscriptTailTests : IDisposable
     [Fact]
     public void ReadNew_DoesNotBlockConcurrentWriter()
     {
-        // 방해 0 검증: 펫이 읽는 동안 Claude Code가 같은 파일에 쓸 수 있어야 한다.
+        // 방해 0 검증. 반드시 반환된 이벤트의 "내용"을 검증해야 한다 —
+        // ReadNew()는 IOException을 삼키므로, 공유 모드가 배타적으로 퇴행해도
+        // "예외가 없다"는 여전히 참이 되어 테스트가 통과해버린다.
+        // 내용을 검증해야만 공유 모드 퇴행이 실제로 잡힌다.
         File.WriteAllText(_path, ToolUseLine + "\n");
         var tail = new TranscriptTail(_path);
-        tail.ReadNew();
 
+        // writer 핸들을 먼저 열어 쥔 채로 쓴다. 그래야 펫의 Open이 살아있는 핸들과 경합한다.
         using var writer = new FileStream(
             _path, FileMode.Append, FileAccess.Write, FileShare.ReadWrite | FileShare.Delete);
         var bytes = System.Text.Encoding.UTF8.GetBytes(ToolUseLine + "\n");
+        writer.Write(bytes, 0, bytes.Length);
+        writer.Flush();
 
-        var ex = Record.Exception(() =>
-        {
-            writer.Write(bytes, 0, bytes.Length);
-            writer.Flush();
-            tail.ReadNew();
-        });
+        var events = tail.ReadNew();
 
-        Assert.Null(ex);
+        Assert.Equal(2, events.Count);
+        Assert.All(events, e => Assert.Equal(TranscriptEventKind.ToolUse, e.Kind));
+    }
+
+    [Fact]
+    public void ReadNew_DeliversLineExactlyOnce_WhenSplitAcrossTwoPolls()
+    {
+        // 쓰기 도중에 poll이 걸린 상황. 미완성 줄은 파싱도 소비도 되지 않아야 하고,
+        // 완성된 뒤 정확히 한 번 전달돼야 한다. 이걸 어기면 이벤트가 영구 유실된다.
+        var fullLine = ToolUseLine + "\n";
+        var splitPoint = fullLine.Length / 2;
+
+        File.WriteAllText(_path, fullLine[..splitPoint]);
+        var tail = new TranscriptTail(_path);
+        Assert.Empty(tail.ReadNew());
+
+        File.AppendAllText(_path, fullLine[splitPoint..]);
+        var events = tail.ReadNew();
+
+        Assert.Single(events);
+        Assert.Equal(TranscriptEventKind.ToolUse, events[0].Kind);
     }
 
     [Fact]
@@ -497,18 +517,53 @@ public sealed class TranscriptTail
 
             stream.Seek(Position, SeekOrigin.Begin);
 
-            using var reader = new StreamReader(stream, Encoding.UTF8);
-            var events = new List<TranscriptEvent>();
-            string? line;
-            while ((line = reader.ReadLine()) is not null)
-                events.AddRange(TranscriptParser.ParseLine(line));
+            var toRead = (int)(stream.Length - Position);
+            if (toRead <= 0)
+                return Array.Empty<TranscriptEvent>();
 
-            Position = stream.Length;
+            var buffer = new byte[toRead];
+            var totalRead = 0;
+            while (totalRead < toRead)
+            {
+                var n = stream.Read(buffer, totalRead, toRead - totalRead);
+                if (n == 0) break;
+                totalRead += n;
+            }
+
+            if (totalRead == 0)
+                return Array.Empty<TranscriptEvent>();
+
+            // 마지막 개행 뒤의 미완성 바이트는 건드리지 않는다. Position은 실제로 소비한
+            // 바이트만큼만 전진한다 — stream.Length로 전진시키면 쓰기 도중에 걸린 줄이
+            // 영영 유실된다. 개행은 UTF-8에서 항상 단독 1바이트라 멀티바이트 문자를
+            // 반으로 자를 위험도 없다.
+            var lastNewline = Array.LastIndexOf(buffer, (byte)'\n', totalRead - 1);
+            if (lastNewline < 0)
+                return Array.Empty<TranscriptEvent>();   // 완성된 줄이 아직 없다.
+
+            var completeLength = lastNewline + 1;
+            var text = Encoding.UTF8.GetString(buffer, 0, completeLength);
+
+            var events = new List<TranscriptEvent>();
+            foreach (var rawLine in text.Split('\n'))
+            {
+                var line = rawLine.Length > 0 && rawLine[^1] == '\r' ? rawLine[..^1] : rawLine;
+                if (line.Length == 0) continue;
+                events.AddRange(TranscriptParser.ParseLine(line));
+            }
+
+            Position += completeLength;
             return events;
         }
         catch (IOException)
         {
             // 일시적 경합. 다음 주기에 다시 읽는다. 절대 던지지 않는다.
+            return Array.Empty<TranscriptEvent>();
+        }
+        catch (UnauthorizedAccessException)
+        {
+            // NTFS는 삭제 대기 상태의 파일에서 IOException이 아니라 이 예외를 던진다.
+            // FileShare.Delete로 여는 것이 계약이므로 실제로 도달 가능한 경로다.
             return Array.Empty<TranscriptEvent>();
         }
     }
@@ -518,7 +573,7 @@ public sealed class TranscriptTail
 - [ ] **Step 4: 테스트 통과 확인**
 
 Run: `dotnet test --filter TranscriptTailTests`
-Expected: PASS — Failed: 0, Passed: 4
+Expected: PASS — Failed: 0, Passed: 5 이상
 
 - [ ] **Step 5: 커밋**
 
