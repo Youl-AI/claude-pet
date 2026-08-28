@@ -19,12 +19,21 @@ public class UsageTrackerTests : IDisposable
     private static string Line(string id, long output) =>
         $$$$"""{"message":{"id":"{{{{id}}}}","model":"claude-opus-5","usage":{"output_tokens":{{{{output}}}}}}}""";
 
+    // WriteTranscript 로 연달아 만든 파일들이 실제 벽시계로는 같은 밀리초에 찍혀 (size,
+    // mtime) 이 우연히 같아지는 것을 막는다 — 그러면 서로 다른 파일인데도 F2의 중복
+    // 제거 로직이 하나로 묶어 세어 총액이 낮게 나온다. 파일마다 1초씩 밀어 준다.
+    // 테스트가 두 파일을 일부러 같은 mtime 으로 만들고 싶으면 WriteTranscript 이후에
+    // File.SetLastWriteTimeUtc 로 직접 덮어쓰면 된다.
+    private DateTime _nextMtime = new(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+
     private string WriteTranscript(string project, string name, params string[] lines)
     {
         var dir = Path.Combine(ProjectsRoot, project);
         Directory.CreateDirectory(dir);
         var path = Path.Combine(dir, name);
         File.WriteAllLines(path, lines);
+        File.SetLastWriteTimeUtc(path, _nextMtime);
+        _nextMtime = _nextMtime.AddSeconds(1);
         return path;
     }
 
@@ -234,6 +243,39 @@ public class UsageTrackerTests : IDisposable
         var persisted = store.Load();
         Assert.Equal(30m, persisted.TotalCostUsd);
         Assert.Equal(29, persisted.Level);
+    }
+
+    [Fact]
+    public void TwoFilesWithTheSameSizeAndMtimeAreCountedOnce()
+    {
+        // Claude Code 가 worktree 세션의 트랜스크립트를 두 번째 프로젝트 디렉터리로
+        // 그대로 복사해 두는 경우 — 바이트 단위로 동일한 파일이 두 경로에 존재한다.
+        var pathA = WriteTranscript("proj-a", "s1.jsonl", Line("m1", 1_200_000));   // $30
+        var pathB = WriteTranscript("proj-b", "s1-copy.jsonl", Line("m1", 1_200_000));
+
+        var mtime = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        File.SetLastWriteTimeUtc(pathA, mtime);
+        File.SetLastWriteTimeUtc(pathB, mtime);
+        Assert.Equal(new FileInfo(pathA).Length, new FileInfo(pathB).Length);
+
+        var snap = NewTracker().Refresh();
+
+        Assert.Equal(30m, snap.TotalCostUsd);
+    }
+
+    [Fact]
+    public void TwoFilesWithTheSameSizeButDifferentMtimesAreBothCounted()
+    {
+        var pathA = WriteTranscript("proj-a", "s1.jsonl", Line("m1", 1_200_000));   // $30
+        var pathB = WriteTranscript("proj-b", "s2.jsonl", Line("m2", 1_200_000));   // $30
+        Assert.Equal(new FileInfo(pathA).Length, new FileInfo(pathB).Length);
+
+        File.SetLastWriteTimeUtc(pathA, new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc));
+        File.SetLastWriteTimeUtc(pathB, new DateTime(2026, 1, 2, 0, 0, 0, DateTimeKind.Utc));
+
+        var snap = NewTracker().Refresh();
+
+        Assert.Equal(60m, snap.TotalCostUsd);
     }
 
     private sealed class ThrowingScanner : TranscriptCostScanner

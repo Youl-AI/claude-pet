@@ -85,8 +85,19 @@ public sealed class UsageTracker
                 try { if (File.Exists(path)) fresh[path] = cached; } catch (Exception) { }
             }
 
+            // 같은 트랜스크립트가 두 프로젝트 디렉터리에 바이트 단위로 복사되는 경우
+            // (git worktree 세션) (크기, mtime) 이 같은 파일은 한 번만 총액에 더한다.
+            // 어느 경로가 "대표"가 될지는 사이클마다 흔들리면 안 되므로 경로를 정렬해
+            // 결정적으로 고른다. 캐시(fresh, state.Files)에는 두 파일 모두 그대로
+            // 남아서 다음 사이클에 재스캔되지 않는다 — 총액 집계에서만 한 번으로 친다.
             var total = 0m;
-            foreach (var entry in fresh.Values) total += entry.CostUsd;
+            var countedKeys = new HashSet<(long Size, long MtimeUnixMs)>();
+            foreach (var path in fresh.Keys.OrderBy(p => p, StringComparer.OrdinalIgnoreCase))
+            {
+                var entry = fresh[path];
+                if (!countedKeys.Add((entry.Size, entry.MtimeUnixMs))) continue;
+                total += entry.CostUsd;
+            }
 
             var level = LevelCurve.LevelFor(total);
 
