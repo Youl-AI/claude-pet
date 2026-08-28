@@ -35,17 +35,16 @@ public sealed class UsageTracker
             // 열거 자체를 try 안에 둔다. EnumerateFiles 는 지연 평가라 MoveNext() 에서 던진다 —
             // foreach 를 try 밖에 두면 그 예외가 새어나간다. 이 실수는 이 저장소의
             // SessionRegistry 에서 이미 한 번 잡혔다.
-            List<string> files;
-            try
-            {
-                files = Directory.Exists(_projectsRoot)
-                    ? Directory.EnumerateFiles(_projectsRoot, "*.jsonl", SearchOption.AllDirectories).ToList()
-                    : new List<string>();
-            }
-            catch (Exception)
-            {
-                files = new List<string>();
-            }
+            //
+            // 여기서 던진 예외를 이 안에서 삼키지 않는다 — 삼켜서 files 를 빈 목록으로
+            // 만들면 "디렉터리가 진짜 비어 있음"과 "열거가 실패해서 뭐가 있는지 모름"이
+            // 구분되지 않는다. 후자를 전자처럼 취급하면 total 이 0으로, level 이 1로
+            // 떨어지고 그 값이 그대로 저장되어 캐시 전체가 날아간다. 그래서 여기서는
+            // 잡지 않고 바깥의 catch(Exception) 으로 넘겨, 그 사이클을 통째로 버리고
+            // (저장하지 않고) 직전 스냅샷을 그대로 돌려주게 한다.
+            var files = Directory.Exists(_projectsRoot)
+                ? Directory.EnumerateFiles(_projectsRoot, "*.jsonl", SearchOption.AllDirectories).ToList()
+                : new List<string>();
 
             foreach (var path in files)
             {
