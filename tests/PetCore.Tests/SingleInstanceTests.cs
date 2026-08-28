@@ -34,16 +34,19 @@ public class SingleInstanceTests
 
         // Phase 3: after release, an acquire from another thread succeeds again.
         bool thirdAcquired = false;
-        SingleInstance? third = null;
         var reacquireThread = new Thread(() =>
         {
-            thirdAcquired = SingleInstance.TryAcquire(name, out third);
+            if (SingleInstance.TryAcquire(name, out var third))
+            {
+                thirdAcquired = true;
+                // ReleaseMutex() throws when called from a non-owning thread,
+                // so acquisition and release must happen on the same thread.
+                third!.Dispose();
+            }
         });
         reacquireThread.Start();
         reacquireThread.Join();
 
         Assert.True(thirdAcquired);
-        Assert.NotNull(third);
-        third!.Dispose();
     }
 }
