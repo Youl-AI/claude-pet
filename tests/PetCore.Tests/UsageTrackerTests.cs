@@ -205,6 +205,42 @@ public class UsageTrackerTests : IDisposable
         Assert.False(snap.LeveledUp);
     }
 
+    [Fact]
+    public void ATransientPerFileFailureDoesNotLowerTheTotalOrCauseALevelUp()
+    {
+        // 사이클 N: 정상 스캔. 총액 $30, 레벨 29가 저장된다.
+        var path = WriteTranscript("proj-a", "s1.jsonl", Line("m1", 1_200_000));
+        var store = new UsageStore(_data);
+        var before = new UsageTracker(ProjectsRoot, store, new TranscriptCostScanner()).Refresh();
+        Assert.Equal(30m, before.TotalCostUsd);
+        Assert.Equal(29, before.Level);
+
+        // 파일 내용을 바꿔 (size/mtime 변경) 캐시 히트를 피하고 재스캔을 유도한다 —
+        // 그래야 아래 ThrowingScanner.ScanFile 이 실제로 호출된다.
+        File.AppendAllLines(path, new[] { Line("m2", 1_000_000) });
+
+        // 이번 사이클엔 이 파일의 스캔이 실패한다 (일시적 공유 위반/권한 변경 등을 흉내).
+        // UsageTracker.Refresh() 안에서 FileInfo stat 과 ScanFile 호출은 같은 per-file
+        // try 블록 안에 있으므로, ScanFile 이 던지는 것만으로도 stat 실패와 동일한
+        // catch 경로(그리고 동일한 fresh 누락)를 그대로 재현한다.
+        var failed = new UsageTracker(ProjectsRoot, store, new ThrowingScanner()).Refresh();
+
+        // 파일이 여전히 존재하므로(File.Exists) 직전 비용을 그대로 들고 가야 한다 —
+        // 총액도 레벨도 떨어지면 안 되고, 당연히 레벨업도 아니다.
+        Assert.Equal(30m, failed.TotalCostUsd);
+        Assert.Equal(29, failed.Level);
+        Assert.False(failed.LeveledUp);
+
+        var persisted = store.Load();
+        Assert.Equal(30m, persisted.TotalCostUsd);
+        Assert.Equal(29, persisted.Level);
+    }
+
+    private sealed class ThrowingScanner : TranscriptCostScanner
+    {
+        public override decimal ScanFile(string path) => throw new IOException("simulated transient failure");
+    }
+
     private sealed class CountingScanner : TranscriptCostScanner
     {
         public int Calls;

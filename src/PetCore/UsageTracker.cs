@@ -74,6 +74,17 @@ public sealed class UsageTracker
                 }
             }
 
+            // 이번 사이클에 stat 이 실패했거나 열거가 조용히 건너뛴 경로는, 파일이 아직
+            // 존재하는 한 직전 비용을 그대로 들고 간다. 그러지 않으면 일시적 실패가 총액을
+            // 떨어뜨린 채로 저장되고, 복구되는 순간 가짜 레벨업이 터진다. 진짜로 사라진
+            // 파일은 File.Exists 가 false 이므로 여기서 복구되지 않고 그대로 빠진다
+            // (DisappearedFilesDropOutOfTheTotal).
+            foreach (var (path, cached) in state.Files)
+            {
+                if (fresh.ContainsKey(path)) continue;
+                try { if (File.Exists(path)) fresh[path] = cached; } catch (Exception) { }
+            }
+
             var total = 0m;
             foreach (var entry in fresh.Values) total += entry.CostUsd;
 
