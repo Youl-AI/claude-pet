@@ -11,6 +11,13 @@ try {
     if (Test-Path $target) {
         Remove-Item -Force -Path $target -ErrorAction SilentlyContinue
     }
+
+    # 서킷 브레이커 카운터도 같이 지운다 — 안 지우면 launch/ 밑에 세션별 카운터
+    # 파일이 영원히 쌓인다.
+    $counterFile = Join-Path $dataDir "launch/$($payload.session_id).count"
+    if (Test-Path $counterFile) {
+        Remove-Item -Force -Path $counterFile -ErrorAction SilentlyContinue
+    }
 }
 catch { }
 exit 0

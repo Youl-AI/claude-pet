@@ -47,11 +47,11 @@ try {
     $record | ConvertTo-Json -Compress | Set-Content -Path $temp -Encoding utf8
     Move-Item -Force -Path $temp -Destination $target
 
-    # 펫 기동. 이미 떠 있으면 뮤텍스가 막으므로 그냥 시도한다.
-    $exe = Join-Path $env:CLAUDE_PLUGIN_ROOT 'bin/pet.exe'
-    if (Test-Path $exe) {
-        Start-Process -FilePath $exe -WindowStyle Hidden -ErrorAction SilentlyContinue
-    }
+    # 펫 기동. 뮤텍스로 생존을 확인하고, 죽어 있으면 서킷 브레이커 안에서 다시 띄운다.
+    # 로직은 pet-launch.ps1 에 있다 — session_start.ps1과 notification.ps1이 각자
+    # 복사해 두면 서킷 브레이커 카운터나 뮤텍스 판정 로직이 갈라질 위험이 있어 공용화한다.
+    . (Join-Path $PSScriptRoot 'pet-launch.ps1')
+    Invoke-PetRecovery -SessionId $payload.session_id -DataDir $dataDir -PluginRoot $env:CLAUDE_PLUGIN_ROOT
 }
 catch {
     # 삼킨다. 절대 세션을 방해하지 않는다.
