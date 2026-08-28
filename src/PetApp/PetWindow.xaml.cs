@@ -154,7 +154,11 @@ public partial class PetWindow : Window
                     // 하는 유일한 상태이기 때문이다. YourTurn 과 Abandoned 는
                     // 제자리에 머문다 — 전자는 물음표로, 후자는 누운 실루엣으로
                     // 이미 구분되고, 굳이 시선을 끌 만큼 급하지 않다.
-                    var center = work.Left + work.Width / 2 - Width / 2;
+                    // 창이 명패를 위해 112px 로 넓어지고 펫은 캔버스 x=PetCellOriginX
+                    // 에서 시작하는 64px 셀 안에 있다 (셀 절반은 32). Width/2 로 창
+                    // 전체를 중앙에 맞추면 펫 자신은 명패 폭만큼 오른쪽으로 치우친다 —
+                    // 펫 셀의 중심이 작업 영역 중앙에 오도록 잡는다.
+                    var center = work.Left + work.Width / 2 - (PetCellOriginX + 32);
                     _x += Math.Sign(center - _x) * BlockedPixelsPerTick * RepositionPixelMultiplier;
                     break;
                 case PetState.Idle:
