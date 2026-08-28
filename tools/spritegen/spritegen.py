@@ -9,9 +9,19 @@
 실루엣은 모든 상태에서 그대로 유지한다. 상태 구분은 몸통 색 + 움직임/표정으로
 한다 — 상태별 색을 다시 도입했다(사용자 피드백).
 
-캐릭터는 32x32 셀의 바닥 쪽에 서 있다 (발이 y=29, 프레임 바닥에서 2줄 위).
-그래서 상하 bob은 발이 셀 밖으로 나가지 않도록 "오직 위로만" 움직인다 —
-dy는 항상 <= 0.
+창은 작업 영역 바닥에 딱 붙고, 32x32 스프라이트를 2배로 늘려 64x64 창을
+채운다. 그래서 "발이 셀의 마지막 행(y=31)에 있는가"가 곧 "바닥과 발 사이에
+틈이 없는가"와 정확히 같은 말이 된다. 발이 y=29에서 끝나던 이전 배치는 30,
+31행이 비어 화면에서 4px 공중부양으로 보였다 — 이번에 몸 전체를 2행 더
+내려 다리가 y 28..31을 차지하도록 고쳤다.
+
+**bob(상하 움직임)이 그 수정을 몰래 무효화하지 않도록**: 몸 전체를 위로
+평행이동하는 대신, 다리를 "늘였다 줄였다" 한다. bob 값 b(0/1/2)에 대해
+몸통·눈썹혹·눈은 y를 b만큼 위로 옮기고, 다리는 위쪽 끝만 b만큼 끌어올린 채
+아래쪽 끝(발)은 항상 y=31에 고정한다 — 다리가 늘어나는 것처럼 보이고, 발은
+절대 바닥을 벗어나지 않는다. 예외는 NeedsYou의 호핑뿐: 정점 프레임에서는
+발을 포함한 캐릭터 전체가 진짜로 떠오르지만, 대부분의 프레임에서는 발이
+다시 y=31에 붙는다.
 
 Python 표준 라이브러리만 사용한다 (struct, zlib, pathlib) — Pillow 없음.
 """
@@ -25,27 +35,27 @@ ROWS = 6
 W, H = FRAME * COLS, FRAME * ROWS
 
 # --- 레스트 포즈 지오메트리 (셀 기준 상대좌표, 양끝 포함 구간) ---
-# 사용자가 "발이 바닥에 닿도록" 다시 측정해 준 배치. 이전 배치보다 몸 전체가
-# 아래로 7px 이동했을 뿐, 폭/모양은 그대로다.
+# 발이 셀의 마지막 행(y=31)에 닿도록 이전 배치보다 몸 전체를 2행 더 내렸다.
+# 폭/모양은 그대로다.
 BODY_X0, BODY_X1 = 6, 25    # 20 wide
-BODY_Y0, BODY_Y1 = 13, 25   # 13 tall
+BODY_Y0, BODY_Y1 = 15, 27   # 13 tall
 
 LEFT_NUB_X0, LEFT_NUB_X1 = 4, 5
 RIGHT_NUB_X0, RIGHT_NUB_X1 = 26, 27
-NUB_Y0, NUB_Y1 = 19, 22
+NUB_Y0, NUB_Y1 = 21, 24
 
 LEFT_EYE_X0, LEFT_EYE_X1 = 10, 11
 RIGHT_EYE_X0, RIGHT_EYE_X1 = 21, 22
-EYE_Y0, EYE_Y1 = 16, 19
+EYE_Y0, EYE_Y1 = 18, 21
 
-LEG_Y0, LEG_Y1 = 26, 29
+LEG_Y0, LEG_Y1 = 28, 31
 LEG_X0S = (7, 11, 19, 23)  # 다리 4개의 왼쪽 x. 각 다리는 2px 폭(x0, x0+1).
                             # 왼쪽 쌍 7/11, 오른쪽 쌍 19/23 — 가운데 12..18 은 빈 간격.
 
-# 골격 상수가 미래에 바뀌어도 다리가 몸통 폭을 벗어나지 않는지, 발이 프레임
-# 바닥(y=31) 안쪽에 머무는지 미리 확인한다.
+# 골격 상수가 미래에 바뀌어도 다리가 몸통 폭을 벗어나지 않는지, 발이 정확히
+# 프레임의 마지막 행(y=31)에 있는지 미리 확인한다.
 assert all(BODY_X0 <= x0 and x0 + 1 <= BODY_X1 for x0 in LEG_X0S), "다리가 몸통 폭을 벗어남"
-assert LEG_Y1 < FRAME, "발이 프레임 바닥 밖으로 나감"
+assert LEG_Y1 == FRAME - 1, "발이 프레임의 마지막 행(바닥)에 있어야 함"
 
 # --- 색상: 상태별 몸통 색 (PetState enum 순서와 반드시 일치) ---
 ROW_BODY_COLORS = (
@@ -66,7 +76,7 @@ NEEDSYOU_EYE_COLOR = (255, 224, 179)
 ROW_EYE_COLORS = (EYE_COLOR, EYE_COLOR, EYE_COLOR, EYE_COLOR, EYE_COLOR, NEEDSYOU_EYE_COLOR)
 
 # --- NeedsYou 전용: 화남 표시(빠직/💢) ---
-# 몸이 아래로 이동하면서 비게 된 y 0..12 구간에 그린다. 두꺼운 대각선 두 개가
+# 몸이 위로 이동하면서 비게 된 위쪽 구간에 그린다. 두꺼운 대각선 두 개가
 # 교차하는 "X" 형태 — 굵기는 셀 두 칸 정도, (MARK_CENTER_X, MARK_CENTER_Y)를
 # 중심으로 대칭이며, 펄스에 따라 크기가 줄어들 때도 같은 중심을 공유한다.
 MARK_COLOR = (150, 20, 20)
@@ -133,25 +143,36 @@ def draw_anger_mark(px, ox, oy, size):
                 put(px, ox, oy, x0 + u, y0 + v, color)
 
 
-def draw_pet(px, ox, oy, *, body_color, eye_color=EYE_COLOR, dx=0, dy=0, lean_dx=0,
-             eye_mode="normal", eye_dx=0, leg_dx=(0, 0, 0, 0)):
+def draw_pet(px, ox, oy, *, body_color, eye_color=EYE_COLOR, bob=0, lift=0, dx=0,
+             lean_dx=0, eye_mode="normal", eye_dx=0, leg_dx=(0, 0, 0, 0)):
     """캐릭터 한 프레임을 그린다.
 
-    dx, dy       : 몸통·눈썹혹·다리·눈 전체에 적용되는 전역 이동 (흔들림/호핑용).
-                    dy는 발이 셀 바닥을 벗어나지 않도록 절대 양수가 되지 않는다
-                    (호출하는 쪽에서 보장 — 이 함수는 그 값을 그대로 적용만 한다).
+    bob           : 웅크림/뻗음 정도(0/1/2, 항상 >= 0). 몸통·눈썹혹·눈은 이
+                     값만큼 위로 이동하지만, 다리는 "늘어난다" — 다리 위쪽 끝만
+                     bob만큼 끌어올려지고 아래쪽 끝(발)은 그대로 LEG_Y1에
+                     남는다. 그래서 몸이 떠 있는 것처럼 보이지 않고, 다리를
+                     늘였다 줄였다 하며 웅크리고 뻗는 것처럼 보인다.
+    lift          : 발을 포함해 캐릭터 전체를 진짜로 들어올리는 값(<=0). 다리의
+                     위/아래 끝 모두에 그대로 더해지므로 발이 바닥(y=31)을
+                     벗어난다 — NeedsYou의 호핑 정점 프레임에만 쓴다.
+    dx            : 몸통·눈썹혹·다리·눈 전체에 적용되는 좌우 이동 (Error의 흔들림용).
     lean_dx       : 몸통·눈썹혹·눈에만 더해지는 추가 x 이동 (다리는 그대로 두어
                      "몸이 진행 방향으로 살짝 기운" 느낌을 만든다 — Running 전용)
     eye_mode/eye_dx: 눈 표현 방식과, 눈에만 더해지는 추가 x 이동 (Reading 스캔용)
     leg_dx        : 다리 4개 각각에 더해지는 x 이동 (보폭 표현용)
     """
     body = (*body_color, 255)
+    dy = lift - bob  # 몸통/눈썹혹/눈에 적용되는 수직 이동: 웅크림 + (있다면) 실제 호핑
+
     rect(px, ox, oy, BODY_X0, BODY_X1, BODY_Y0, BODY_Y1, dx + lean_dx, dy, body)
     rect(px, ox, oy, LEFT_NUB_X0, LEFT_NUB_X1, NUB_Y0, NUB_Y1, dx + lean_dx, dy, body)
     rect(px, ox, oy, RIGHT_NUB_X0, RIGHT_NUB_X1, NUB_Y0, NUB_Y1, dx + lean_dx, dy, body)
 
+    # 다리: 위쪽 끝만 bob으로 끌어올리고, 전체를 lift로 (보통 0으로) 이동한다.
+    # lift == 0 이면 아래쪽 끝은 항상 LEG_Y1(=31) — 발이 절대 바닥을 안 뜬다.
+    leg_top = LEG_Y0 - bob
     for x0, ldx in zip(LEG_X0S, leg_dx):
-        rect(px, ox, oy, x0, x0 + 1, LEG_Y0, LEG_Y1, dx + ldx, dy, body)
+        rect(px, ox, oy, x0, x0 + 1, leg_top, LEG_Y1, dx + ldx, lift, body)
 
     draw_eyes(px, ox, oy, dx + lean_dx + eye_dx, dy, eye_mode, eye_color)
 
@@ -162,14 +183,14 @@ def draw_pet(px, ox, oy, *, body_color, eye_color=EYE_COLOR, dx=0, dy=0, lean_dx
 # 프레임을 구별한다.
 # ---------------------------------------------------------------------------
 
-# 0 Idle — 완만한 상하 bob(항상 위로만) + 이따금 눈을 깜빡임.
-IDLE_DY = (0, -1, -2, -3, -2, -1, 0, 0)
+# 0 Idle — 완만한 웅크림/뻗음(bob) + 이따금 눈을 깜빡임. 발은 항상 y=31.
+IDLE_BOB = (0, 1, 2, 1, 0, 0, 0, 0)
 IDLE_BLINK_COLS = {4, 5}  # "a frame or two" — 두 프레임 연속으로 감았다 뜬다
 
 
 def idle_frame(col):
     return dict(
-        dy=IDLE_DY[col],
+        bob=IDLE_BOB[col],
         eye_mode="blink" if col in IDLE_BLINK_COLS else "normal",
     )
 
@@ -182,29 +203,29 @@ def reading_frame(col):
     return dict(eye_dx=READING_EYE_DX[col])
 
 
-# 2 Writing — 짧고 빠른 bob(항상 위로만) + 다리가 빠르게 번갈아 두드리듯 움직인다.
+# 2 Writing — 짧고 빠른 bob(웅크림) + 다리가 빠르게 번갈아 두드리듯 움직인다.
 # bob은 주기 2, 다리는 주기 3으로 서로 엇갈리게 해서 프레임마다 조합이
 # 계속 바뀌게 한다 (같은 주기로 묶으면 프레임 절반이 서로 동일해진다).
-WRITING_DY = (0, -1, 0, -1, 0, -1, 0, -1)
+WRITING_BOB = (0, 1, 0, 1, 0, 1, 0, 1)
 WRITING_LEG_SETS = ((0, 0, 0, 0), (1, -1, 1, -1), (-1, 1, -1, 1))
 
 
 def writing_frame(col):
-    return dict(dy=WRITING_DY[col], leg_dx=WRITING_LEG_SETS[col % 3])
+    return dict(bob=WRITING_BOB[col], leg_dx=WRITING_LEG_SETS[col % 3])
 
 
-# 3 Running — 더 큰 보폭(다리가 크게 벌어짐)과 진행 방향으로의 살짝 기울임.
-# bob은 항상 위로만 움직인다.
-RUNNING_DY = (0, -1, -2, -3, -3, -2, -1, 0)
+# 3 Running — 더 큰 보폭(다리가 크게 벌어짐)과 진행 방향으로의 살짝 기울임,
+# 그리고 가장 큰 웅크림/뻗음(bob)으로 달리는 탄력을 표현한다.
+RUNNING_BOB = (0, 1, 2, 2, 2, 2, 1, 0)
 RUNNING_LEG_SETS = ((-2, -2, 2, 2), (1, 1, -1, -1), (2, 2, -2, -2), (1, 1, -1, -1))
 
 
 def running_frame(col):
-    return dict(dy=RUNNING_DY[col], leg_dx=RUNNING_LEG_SETS[col % 4], lean_dx=1)
+    return dict(bob=RUNNING_BOB[col], leg_dx=RUNNING_LEG_SETS[col % 4], lean_dx=1)
 
 
 # 4 Error — 눈은 항상 질끈 감은 가로 막대(wince), 몸 전체가 좌우로 떨린다.
-# 좌우 흔들림(dx)만 쓰므로 바닥 접지에는 영향이 없다.
+# 좌우 흔들림(dx)만 쓰므로 바닥 접지에는 영향이 없다 (bob=0 고정).
 ERROR_DX = (0, 1, -1, 2, -2, 1, -1, 0)
 
 
@@ -213,18 +234,25 @@ def error_frame(col):
 
 
 # 5 NeedsYou — 가장 중요한 신호이므로 한눈에 다른 상태와 착각할 수 없어야
-# 한다. 강렬한 빨강 몸통 + 밝은 눈 + 가장 큰 호핑(dy 최대 -4, 항상 위로만) +
-# 위쪽 여백에 펄스하는 화남 표시(💢)를 함께 쓴다. dy와 mark_size 위상이 서로
-# 다른 곡선이라 8프레임 전부가 서로 다른 그림이 되고, 호핑 정점(col=3)에서
-# 화남 표시도 풀사이즈라 "정점에서 몸/표시가 모두 셀 안에 있는지"를 같은
-# 프레임에서 확인할 수 있다. 시작/끝 프레임(col 0/7)은 mark_size를 다르게
-# 두어(0 vs 3) 루프가 닫힐 때도 두 프레임이 픽셀 단위로 동일해지지 않게 한다.
-NEEDSYOU_DY = (0, -1, -2, -4, -3, -2, -1, 0)
+# 한다. 강렬한 빨강 몸통 + 밝은 눈 + 진짜로 발이 바닥을 떠나는 호핑 +
+# 위쪽 여백에 펄스하는 화남 표시(💢)를 함께 쓴다.
+#
+# 다른 상태와 달리 이 상태의 점프는 "진짜로 떠야" 하므로 bob이 아니라 lift를
+# 쓴다 — lift는 발까지 포함해 캐릭터 전체를 들어올린다. 그래도 8프레임 중
+# 과반(col 0,1,5,6,7 = 5프레임)은 lift=0으로 발이 y=31에 그대로 붙어 있고,
+# 도약 정점 근처(col 2,3,4)만 진짜로 뜬다. col 1/6은 도약 직전/직후의 웅크림
+# (bob>0, 발은 그대로 바닥)이라 착지가 "쿵" 하고 눌리는 느낌을 준다.
+NEEDSYOU_BOB = (0, 2, 0, 0, 0, 0, 2, 0)
+NEEDSYOU_LIFT = (0, 0, -2, -4, -2, 0, 0, 0)
 NEEDSYOU_MARK_SIZE = (0, 5, 9, 9, 9, 7, 5, 3)
 
 
 def needsyou_frame(col):
-    return dict(dy=NEEDSYOU_DY[col], mark_size=NEEDSYOU_MARK_SIZE[col])
+    return dict(
+        bob=NEEDSYOU_BOB[col],
+        lift=NEEDSYOU_LIFT[col],
+        mark_size=NEEDSYOU_MARK_SIZE[col],
+    )
 
 
 ROW_FRAME_FNS = (
