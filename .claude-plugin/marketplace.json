@@ -1,0 +1,18 @@
+{
+  "name": "claude-pet-local",
+  "owner": {
+    "name": "hayoul1999"
+  },
+  "metadata": {
+    "description": "Local marketplace hosting the claude-pet plugin from this repository",
+    "version": "0.1.0"
+  },
+  "plugins": [
+    {
+      "name": "claude-pet",
+      "description": "Desktop pet that reacts to Claude Code activity without interfering with it",
+      "source": "./plugin",
+      "category": "Developer Tools"
+    }
+  ]
+}
