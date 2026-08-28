@@ -146,4 +146,41 @@ public class PetStateMachineTests
         Assert.Equal(PetState.Idle,
             PetStateMachine.Aggregate(Array.Empty<PetStateMachine>()));
     }
+
+    [Fact]
+    public void Aggregate_IgnoresWaitingSessionsWithHigherSequence()
+    {
+        // Tests that Aggregate filters out NeedsYou sessions before picking the most recent.
+        // This catches a regression where the .Where(...) filter is removed.
+        // If the filter is gone, this test fails because the newer waiting session
+        // has higher Sequence and would be returned instead of the older working one.
+        var busySession = new PetStateMachine();
+        busySession.Apply(Tool("Write"));  // Applied first → lower Sequence
+
+        var waitingSession = new PetStateMachine();
+        waitingSession.Apply(new TranscriptEvent(TranscriptEventKind.AssistantText));  // Applied second → higher Sequence, state is NeedsYou
+
+        Assert.Equal(PetState.Writing,
+            PetStateMachine.Aggregate(new[] { busySession, waitingSession }));
+    }
+
+    [Fact]
+    public void Aggregate_UsesSequenceNotCollectionOrder()
+    {
+        // Tests that Aggregate picks the session with the highest Sequence,
+        // not the last element in the collection.
+        // This catches a regression where OrderByDescending(m => m.Sequence)
+        // is replaced with LastOrDefault() over the unordered filtered sequence.
+        var olderSession = new PetStateMachine();
+        olderSession.Apply(Tool("Read"));  // Applied first → lower Sequence
+
+        var newerSession = new PetStateMachine();
+        newerSession.Apply(Tool("Bash"));  // Applied second → higher Sequence
+
+        // Pass them in reverse collection order: newerSession first, olderSession second.
+        // If the implementation uses collection order instead of Sequence,
+        // it would pick olderSession (last element) and return Reading instead of Running.
+        Assert.Equal(PetState.Running,
+            PetStateMachine.Aggregate(new[] { newerSession, olderSession }));
+    }
 }
