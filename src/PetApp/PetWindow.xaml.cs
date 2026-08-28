@@ -219,7 +219,24 @@ public partial class PetWindow : Window
         // 호출자를 막지 않고, 렌더 스레드 밖에서 요소를 건드리지도 않는다.
         if (!Dispatcher.CheckAccess())
         {
-            Dispatcher.BeginInvoke(new Action(() => SetLevel(level, leveledUp)));
+            // 디스패처가 셧다운을 시작했거나 이미 끝났으면 그릴 대상이 없으므로
+            // 갱신을 조용히 버린다. 이 검사와 BeginInvoke 사이에도 셧다운이 끼어들
+            // 수 있는 경쟁 상태가 남기 때문에, 검사만으로는 불충분하고 호출 자체도
+            // 예외로부터 보호해야 한다 — 백그라운드 스레드의 미처리 예외는 프로세스를
+            // 종료시킨다.
+            if (Dispatcher.HasShutdownStarted || Dispatcher.HasShutdownFinished)
+                return;
+
+            try
+            {
+                Dispatcher.BeginInvoke(new Action(() => SetLevel(level, leveledUp)));
+            }
+            catch (Exception)
+            {
+                // 위 검사 직후 셧다운이 시작된 경우의 경쟁 상태. 갱신을 버린다.
+                // 종류를 열거하지 않는다 — 이 저장소는 catch(IOException) 만 잡았다가
+                // UnauthorizedAccessException 에 세 번 뚫린 이력이 있다.
+            }
             return;
         }
 
