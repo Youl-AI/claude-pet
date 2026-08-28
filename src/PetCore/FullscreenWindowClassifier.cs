@@ -24,14 +24,24 @@ public static class FullscreenWindowClassifier
 
     /// <summary>
     /// <paramref name="windowRect"/>가 <paramref name="monitorRect"/>를 완전히
-    /// 뒤덮고, 데스크톱/셸 창이 아닐 때만 true를 반환한다.
+    /// 뒤덮고, 데스크톱/셸 창이 아니고, 그 창이 펫과 같은 모니터에 있을
+    /// 때만 true를 반환한다.
+    ///
+    /// <paramref name="isSameMonitorAsPet"/>이 false면 나머지 조건과
+    /// 무관하게 항상 false다 — 다른 모니터를 뒤덮는 전체화면 앱은 펫이
+    /// 있는 모니터를 전혀 가리지 않으므로 숨을 이유가 없다. 다중 모니터
+    /// 환경에서 실측된 버그: 보조 모니터를 덮는 창(작업 표시줄이 없어
+    /// 기하학적 검사를 항상 통과) 때문에 펫이 거의 항상 숨어버렸다.
     /// </summary>
     public static bool IsFullscreenApp(
         PixelRect windowRect,
         PixelRect monitorRect,
         string? windowClassName,
-        bool isShellWindow)
+        bool isShellWindow,
+        bool isSameMonitorAsPet)
     {
+        if (!isSameMonitorAsPet) return false;
+
         if (isShellWindow) return false;
 
         if (windowClassName is not null)

@@ -43,6 +43,7 @@ public partial class PetWindow : Window
 
     private int _fullscreenPollCounter;
     private bool _isFullscreenHiding;
+    private IntPtr _hwnd;
 
     public PetWindow()
     {
@@ -61,7 +62,11 @@ public partial class PetWindow : Window
 
     private void OnSourceInitialized(object? sender, EventArgs e)
     {
-        NativeMethods.MakeNonInteractive(new WindowInteropHelper(this).Handle);
+        // 창 핸들은 여기서만 얻을 수 있다(SourceInitialized 이전엔 없다) —
+        // 매 틱 다시 조회하지 않도록 캐싱해 둔다. 전체화면 판정에서 펫
+        // 자신의 모니터를 구할 때 이 핸들이 필요하다.
+        _hwnd = new WindowInteropHelper(this).Handle;
+        NativeMethods.MakeNonInteractive(_hwnd);
 
         var work = SystemParameters.WorkArea;
         _x = work.Left + work.Width / 2;
@@ -80,7 +85,7 @@ public partial class PetWindow : Window
         // 틱 반복할 필요는 없으므로 대략 초당 1회로만 폴링한다.
         if (_fullscreenPollCounter <= 0)
         {
-            _isFullscreenHiding = NativeMethods.IsFullscreenAppForeground();
+            _isFullscreenHiding = NativeMethods.IsFullscreenAppForeground(_hwnd);
             _fullscreenPollCounter = FullscreenPollIntervalTicks;
         }
         _fullscreenPollCounter--;

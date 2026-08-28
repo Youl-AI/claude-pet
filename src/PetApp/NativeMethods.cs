@@ -64,16 +64,21 @@ internal static class NativeMethods
     }
 
     /// <summary>
-    /// 전체화면 앱(발표·영상·게임)이 앞에 있으면 펫은 숨어야 한다.
+    /// 전체화면 앱(발표·영상·게임)이 앞에 있으면 펫은 숨어야 한다 — 단,
+    /// 그 앱이 펫과 같은 모니터에 있을 때만이다. 다중 모니터 환경에서
+    /// 다른 모니터를 뒤덮는 창은 펫이 있는 화면을 전혀 가리지 않는다.
     ///
-    /// 판정 로직 자체(사각형이 모니터를 뒤덮는지, 데스크톱/셸 창은
-    /// 아닌지)는 FullscreenWindowClassifier로 뽑아 두었다 — 여기서는
-    /// P/Invoke로 원재료(전경 창 핸들, 셸 창 여부, 클래스 이름, 창/모니터
-    /// 사각형)만 모아 넘긴다. 판정 로직을 Windows API와 분리해야 유닛
-    /// 테스트가 가능하고, 그 테스트가 실제로 바탕화면(Progman)이 항상
-    /// "전체화면"으로 오판되던 버그를 잡아낸다.
+    /// <paramref name="petHwnd"/>로 펫 자신의 모니터를 <c>MonitorFromWindow</c>
+    /// 로 구해 전경 창의 모니터와 비교한다. 판정 로직 자체(사각형이
+    /// 모니터를 뒤덮는지, 데스크톱/셸 창은 아닌지, 같은 모니터인지)는
+    /// FullscreenWindowClassifier로 뽑아 두었다 — 여기서는 P/Invoke로
+    /// 원재료(전경 창 핸들, 셸 창 여부, 클래스 이름, 창/모니터 사각형,
+    /// 모니터 핸들 비교)만 모아 넘긴다. 판정 로직을 Windows API와
+    /// 분리해야 유닛 테스트가 가능하고, 그 테스트가 실제로
+    /// 바탕화면(Progman)이 항상 "전체화면"으로 오판되던 버그와, 다른
+    /// 모니터를 덮는 창 때문에 펫이 숨어버리던 버그를 잡아낸다.
     /// </summary>
-    public static bool IsFullscreenAppForeground()
+    public static bool IsFullscreenAppForeground(IntPtr petHwnd)
     {
         try
         {
@@ -85,6 +90,9 @@ internal static class NativeMethods
             var info = new MONITORINFO { cbSize = Marshal.SizeOf<MONITORINFO>() };
             if (!GetMonitorInfo(monitor, ref info)) return false;
 
+            var petMonitor = MonitorFromWindow(petHwnd, 2 /* MONITOR_DEFAULTTONEAREST */);
+            var isSameMonitorAsPet = monitor == petMonitor;
+
             var isShellWindow = foreground == GetShellWindow();
 
             var classNameBuffer = new StringBuilder(256);
@@ -94,7 +102,8 @@ internal static class NativeMethods
                 ToPixelRect(windowRect),
                 ToPixelRect(info.rcMonitor),
                 classNameBuffer.ToString(),
-                isShellWindow);
+                isShellWindow,
+                isSameMonitorAsPet);
         }
         catch (Exception)
         {
