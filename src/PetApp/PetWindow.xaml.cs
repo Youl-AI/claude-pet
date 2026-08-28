@@ -24,6 +24,13 @@ public partial class PetWindow : Window
     // 때문에 "다시 보이지 않는" 회귀는 없다 — 다음 폴링에서 반드시 갱신된다.
     private const int FullscreenPollIntervalTicks = Fps;
 
+    // 레이어드 윈도우(AllowsTransparency)는 위치가 바뀔 때마다 전체 서피스를
+    // 재합성한다. 픽셀아트는 12fps 스프라이트 애니메이션과 달리 6Hz로만
+    // 옮겨도 눈에는 그대로 매끄럽다. 그래서 위치 이동은 두 틱에 한 번만
+    // 계산하고, 그 대신 한 번에 두 배 거리를 움직여 초당 이동 거리(체감
+    // 속도)는 그대로 유지한다.
+    private const double RepositionPixelMultiplier = 2.0;
+
     private readonly SpriteSheet _sheet = new();
     private readonly DispatcherTimer _timer;
 
@@ -32,6 +39,7 @@ public partial class PetWindow : Window
     private double _x;
     private int _direction = 1;
     private PetState _state = PetState.Idle;
+    private int _repositionTick;
 
     private int _fullscreenPollCounter;
     private bool _isFullscreenHiding;
@@ -84,28 +92,49 @@ public partial class PetWindow : Window
         }
         if (Visibility != Visibility.Visible) Visibility = Visibility.Visible;
 
+        // 잠들었는지 여부는 Left/Top/Sprite.Source를 조금이라도 건드리기
+        // 전에 확정한다 — 그래야 잠든 펫은 위치 계산도, 창 재배치도, 스프라
+        // 이트 갱신도 전혀 하지 않는다(레이어드 윈도우 재합성 0회). 상태가
+        // Idle이 아닌 다른 값으로 바뀌면 이 카운터가 같은 틱에서 즉시 0으로
+        // 리셋되므로 깨어남에는 지연이 없다. 위의 전체화면 검사만은 이
+        // 리턴보다 앞에 있어 잠든 동안에도 계속 돌고, 잠든 채로 전체화면
+        // 앱이 뜨거나 내려가도 숨김/재표시가 정상 동작한다.
+        _idleTicks = _state == PetState.Idle ? _idleTicks + 1 : 0;
+        if (_idleTicks > SleepAfterTicks) return;
+
         var work = SystemParameters.WorkArea;
 
-        // 설계서 §9.1: Idle은 천천히 배회하고 가끔 앉거나 존다. Running은
-        // 빠르게 걷는다. NeedsYou는 하단 중앙으로 모인다. Reading/Writing/
-        // Error는 제자리에서 반응만 한다 — 가로 이동이 없다.
-        switch (_state)
+        // 레이어드 윈도우 재합성 비용을 줄이려고 위치 이동 자체는 6Hz로만
+        // 계산한다(12fps 틱의 절반). 건너뛴 틱에는 _x가 그대로이므로 아래
+        // Left 대입 가드가 자연히 걸러 SetWindowPos를 추가로 부르지 않는다.
+        var shouldReposition = _repositionTick == 0;
+        _repositionTick = (_repositionTick + 1) % 2;
+
+        if (shouldReposition)
         {
-            case PetState.NeedsYou:
-                var center = work.Left + work.Width / 2 - Width / 2;
-                _x += Math.Sign(center - _x) * NeedsYouPixelsPerTick;
-                break;
-            case PetState.Idle:
-                Bounce(work, IdleWanderPixelsPerTick);
-                break;
-            case PetState.Running:
-                Bounce(work, RunningPixelsPerTick);
-                break;
-            default:
-                // Reading, Writing, Error: 제자리. _x를 건드리지 않는다 —
-                // 이러면 Left 재대입도 없어져 매 틱 SetWindowPos와 레이어드
-                // 서피스 재합성이 그만큼 줄어든다.
-                break;
+            // 설계서 §9.1: Idle은 천천히 배회하고 가끔 앉거나 존다. Running은
+            // 빠르게 걷는다. NeedsYou는 하단 중앙으로 모인다. Reading/Writing/
+            // Error는 제자리에서 반응만 한다 — 가로 이동이 없다. 계산은 두
+            // 틱에 한 번만 도니, 체감 속도를 유지하려고 틱당 거리를 두 배로
+            // 준다.
+            switch (_state)
+            {
+                case PetState.NeedsYou:
+                    var center = work.Left + work.Width / 2 - Width / 2;
+                    _x += Math.Sign(center - _x) * NeedsYouPixelsPerTick * RepositionPixelMultiplier;
+                    break;
+                case PetState.Idle:
+                    Bounce(work, IdleWanderPixelsPerTick * RepositionPixelMultiplier);
+                    break;
+                case PetState.Running:
+                    Bounce(work, RunningPixelsPerTick * RepositionPixelMultiplier);
+                    break;
+                default:
+                    // Reading, Writing, Error: 제자리. _x를 건드리지 않는다 —
+                    // 이러면 Left 재대입도 없어져 매 틱 SetWindowPos와 레이어드
+                    // 서피스 재합성이 그만큼 줄어든다.
+                    break;
+            }
         }
 
         // 작업 영역이 줄어들 수 있다 (모니터 분리, 해상도 변경, 작업표시줄
@@ -120,13 +149,10 @@ public partial class PetWindow : Window
 
         // 값이 실제로 바뀔 때만 대입한다. WPF DP는 동일 값 대입을 내부적으로
         // 걸러내지만, 명시적으로도 걸러 Left/Top 관련 SetWindowPos 호출을
-        // 확실히 줄인다.
+        // 확실히 줄인다. Left는 건너뛴 틱에는 _x가 안 바뀌므로 이 가드만으로
+        // 자연히 6Hz로 눌린다 — shouldReposition을 따로 검사할 필요가 없다.
         if (Left != _x) Left = _x;
         if (Top != top) Top = top;
-
-        // 잠들면 렌더링을 멈춘다 (스펙 §6.5).
-        _idleTicks = _state == PetState.Idle ? _idleTicks + 1 : 0;
-        if (_idleTicks > SleepAfterTicks) return;
 
         _frame = (_frame + 1) % SpriteSheet.Columns;
         var next = _sheet.Frame(_state, _frame);
