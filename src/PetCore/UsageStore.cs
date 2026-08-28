@@ -36,7 +36,15 @@ public sealed class UsageStore
             if (state is null || state.Version != UsageState.CurrentVersion)
                 return new UsageState();
 
-            state.Files ??= new Dictionary<string, UsageFileEntry>(StringComparer.OrdinalIgnoreCase);
+            // JsonSerializer.Deserialize 는 항상 기본(대소문자 구분) 비교자로 딕셔너리를
+            // 만든다 — Files 필드에 초기값이 있어도 역직렬화가 그 자리를 새 딕셔너리로
+            // 덮어쓰기 때문에 ??= 만으로는 부족하다. UsageTracker 의 fresh 는
+            // OrdinalIgnoreCase 이므로, 여기서 다시 만들어 맞추지 않으면 저장된 경로와
+            // 열거된 경로의 대소문자가 어긋나는 순간 캐시 조회가 전부 미스 나서 30초마다
+            // 전체 트리를 영원히 재스캔하게 된다.
+            state.Files = state.Files is null
+                ? new Dictionary<string, UsageFileEntry>(StringComparer.OrdinalIgnoreCase)
+                : new Dictionary<string, UsageFileEntry>(state.Files, StringComparer.OrdinalIgnoreCase);
             return state;
         }
         catch (Exception)

@@ -40,6 +40,23 @@ public class UsageStoreTests : IDisposable
     }
 
     [Fact]
+    public void LoadedFilesDictionaryIsCaseInsensitiveEvenAfterRoundTrippingThroughJson()
+    {
+        // UsageTracker 는 fresh 를 OrdinalIgnoreCase 로 만든다. state.Files 가
+        // JsonSerializer.Deserialize 직후 기본(대소문자 구분) 비교자로 오면, 저장된
+        // 경로와 열거된 경로의 대소문자가 어긋나는 순간 캐시 조회가 전부 미스 나서
+        // 30초마다 전체 트리를 영원히 재스캔하게 된다.
+        var store = new UsageStore(_dir);
+        var state = new UsageState();
+        state.Files["C:/x/a.jsonl"] = new UsageFileEntry { Size = 1, MtimeUnixMs = 2, CostUsd = 3m };
+        store.Save(state);
+
+        var loaded = store.Load();
+
+        Assert.True(loaded.Files.ContainsKey("c:/X/A.JSONL"));
+    }
+
+    [Fact]
     public void CorruptFileYieldsAFreshStateInsteadOfThrowing()
     {
         File.WriteAllText(StatePath, "{ this is not json");
