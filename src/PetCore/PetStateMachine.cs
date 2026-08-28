@@ -55,7 +55,19 @@ public sealed class PetStateMachine
                 break;
 
             case TranscriptEventKind.ToolResult:
-                if (e.IsError) Current = PetState.Error;
+                if (e.IsError)
+                {
+                    Current = PetState.Error;
+                }
+                else
+                {
+                    // 성공한 결과는 일이 진행 중이라는 뜻이다 — 승인 대기(Blocked)든
+                    // 같은 턴의 다른 도구가 남긴 Error든, 더 이상 사실이 아닌 신호를 지운다.
+                    // 다음 도구 호출이나 어시스턴트 텍스트가 오기 전까지는 Thinking과 동일하게
+                    // "지금 특정 동작 중은 아니다"가 가장 정직한 상태이므로 Idle로 되돌린다.
+                    NeedsYou = NeedsYouLevel.None;
+                    Current = PetState.Idle;
+                }
                 break;
 
             case TranscriptEventKind.AssistantText:

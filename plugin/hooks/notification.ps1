@@ -1,6 +1,7 @@
 # 사람이 필요한 순간을 펫에게 알린다.
 # 이 훅은 사용자가 코딩하고 있지 않을 때만 발생한다.
 try {
+    $ErrorActionPreference = 'Stop'
     $payload = [Console]::In.ReadToEnd() | ConvertFrom-Json
 
     $dataDir = $env:CLAUDE_PLUGIN_DATA

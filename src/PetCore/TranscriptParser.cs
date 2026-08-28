@@ -25,8 +25,20 @@ public static class TranscriptParser
             if (!message.TryGetProperty("content", out var content))
                 return Array.Empty<TranscriptEvent>();
 
+            // message.role 로 키를 잡는다: 이미 읽어 둔 message 객체에 바로 붙어 있고,
+            // 이 content 배열/문자열을 실제로 누가 작성했는지 말해 주는 필드이기 때문이다
+            // (루트의 "type"은 봉투 분류일 뿐 — user/assistant 줄에서는 role과 일치하지만,
+            // "summary" 등 다른 타입은 애초에 message 필드가 없어 위에서 이미 걸러진다).
+            // tool_use/tool_result 는 role과 무관하게 항상 파싱한다 — user 줄에 실리는
+            // tool_result 가 그 예다.
+            var isAssistant = message.TryGetProperty("role", out var roleProp)
+                               && roleProp.ValueKind == JsonValueKind.String
+                               && roleProp.GetString() == "assistant";
+
             if (content.ValueKind == JsonValueKind.String)
-                return new[] { new TranscriptEvent(TranscriptEventKind.AssistantText) };
+                return isAssistant
+                    ? new[] { new TranscriptEvent(TranscriptEventKind.AssistantText) }
+                    : Array.Empty<TranscriptEvent>();
 
             if (content.ValueKind != JsonValueKind.Array)
                 return Array.Empty<TranscriptEvent>();
@@ -58,11 +70,13 @@ public static class TranscriptParser
                         break;
 
                     case "text":
-                        results.Add(new TranscriptEvent(TranscriptEventKind.AssistantText));
+                        if (isAssistant)
+                            results.Add(new TranscriptEvent(TranscriptEventKind.AssistantText));
                         break;
 
                     case "thinking":
-                        results.Add(new TranscriptEvent(TranscriptEventKind.Thinking));
+                        if (isAssistant)
+                            results.Add(new TranscriptEvent(TranscriptEventKind.Thinking));
                         break;
                 }
             }

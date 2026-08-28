@@ -1,6 +1,7 @@
 # 세션을 등록하고 펫이 없으면 띄운다.
 # 어떤 경우에도 exit 0 으로 끝난다 — 펫이 세션을 방해해서는 안 된다.
 try {
+    $ErrorActionPreference = 'Stop'
     $raw = [Console]::In.ReadToEnd()
     $payload = $raw | ConvertFrom-Json
 

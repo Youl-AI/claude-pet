@@ -83,6 +83,38 @@ public class PetStateMachineTests
     }
 
     [Fact]
+    public void SuccessfulToolResult_AfterPermissionPrompt_ClearsNeedsYou()
+    {
+        // permission_prompt 로 막힌 뒤 사용자가 승인하면 도구가 실행된다.
+        // 성공 결과가 오면 더 이상 "사람이 필요"하지 않다 — 일이 진행 중이다.
+        var machine = new PetStateMachine();
+        machine.Apply(Tool("Bash"));
+        machine.ApplyNotification("permission_prompt");
+        machine.Apply(new TranscriptEvent(TranscriptEventKind.ToolResult));
+
+        Assert.Equal(NeedsYouLevel.None, machine.NeedsYou);
+        Assert.NotEqual(PetState.NeedsYou, machine.Current);
+        Assert.Equal(PetState.Idle, machine.Current);
+    }
+
+    [Fact]
+    public void SuccessfulToolResult_ClearsErrorFromEarlierToolInSameTurn()
+    {
+        // 한 턴에 도구 두 개가 호출되고(A, B), A의 결과가 에러였다가
+        // 이어서 B의 결과가 성공으로 온다. 성공 결과는 남아있던 에러를 지워야 한다.
+        var machine = new PetStateMachine();
+        machine.Apply(Tool("Bash"));
+        machine.Apply(Tool("Read"));
+        machine.Apply(new TranscriptEvent(TranscriptEventKind.ToolResult, null, IsError: true));
+        Assert.Equal(PetState.Error, machine.Current);
+
+        machine.Apply(new TranscriptEvent(TranscriptEventKind.ToolResult));
+
+        Assert.NotEqual(PetState.Error, machine.Current);
+        Assert.Equal(PetState.Idle, machine.Current);
+    }
+
+    [Fact]
     public void NewToolUse_ClearsNeedsYou()
     {
         var machine = new PetStateMachine();
