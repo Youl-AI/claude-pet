@@ -223,8 +223,20 @@ public class TranscriptParserTests
     [InlineData("   ")]
     [InlineData("{not json")]
     [InlineData("{\"type\":\"summary\",\"summary\":\"x\"}")]
+    // 루트가 객체가 아닌 경우 — 잘린 쓰기에서 실제로 나온다.
+    [InlineData("42")]
+    [InlineData("null")]
+    [InlineData("[1,2,3]")]
+    [InlineData("\"x\"")]
+    [InlineData("true")]
+    // message 나 content 항목이 객체가 아닌 경우
+    [InlineData("{\"message\":\"hi\"}")]
+    [InlineData("{\"message\":null}")]
+    [InlineData("{\"message\":{\"content\":[1,2,3]}}")]
+    [InlineData("{\"message\":{\"content\":[{\"type\":123}]}}")]
     public void ReturnsEmpty_ForUnparseableOrIrrelevantLines(string line)
     {
+        // ParseLine 은 어떤 입력에도 예외를 던지지 않는다.
         Assert.Empty(TranscriptParser.ParseLine(line));
     }
 }
@@ -277,8 +289,14 @@ public static class TranscriptParser
 
         using (doc)
         {
+            // JsonElement.TryGetProperty 는 대상이 객체가 아니면 InvalidOperationException 을
+            // 던진다. 잘린 JSONL 이 흔한 입력이므로 탐색 지점마다 ValueKind 를 확인한다.
             var root = doc.RootElement;
+            if (root.ValueKind != JsonValueKind.Object)
+                return Array.Empty<TranscriptEvent>();
             if (!root.TryGetProperty("message", out var message))
+                return Array.Empty<TranscriptEvent>();
+            if (message.ValueKind != JsonValueKind.Object)
                 return Array.Empty<TranscriptEvent>();
             if (!message.TryGetProperty("content", out var content))
                 return Array.Empty<TranscriptEvent>();
@@ -292,13 +310,20 @@ public static class TranscriptParser
             var results = new List<TranscriptEvent>();
             foreach (var item in content.EnumerateArray())
             {
+                if (item.ValueKind != JsonValueKind.Object)
+                    continue;
                 if (!item.TryGetProperty("type", out var typeProp))
+                    continue;
+                if (typeProp.ValueKind != JsonValueKind.String)
                     continue;
 
                 switch (typeProp.GetString())
                 {
                     case "tool_use":
-                        var name = item.TryGetProperty("name", out var n) ? n.GetString() : null;
+                        var name = item.TryGetProperty("name", out var n)
+                                   && n.ValueKind == JsonValueKind.String
+                            ? n.GetString()
+                            : null;
                         results.Add(new TranscriptEvent(TranscriptEventKind.ToolUse, name));
                         break;
 
@@ -327,7 +352,7 @@ public static class TranscriptParser
 - [ ] **Step 4: 테스트 통과 확인**
 
 Run: `dotnet test --filter TranscriptParserTests`
-Expected: PASS — Failed: 0, Passed: 7
+Expected: PASS — Failed: 0, Passed: 16
 
 - [ ] **Step 5: 커밋**
 
