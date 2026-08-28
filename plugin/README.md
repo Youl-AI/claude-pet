@@ -13,23 +13,24 @@ checkout before the plugin will do anything visible.
 Build it with:
 
 ```
-dotnet publish src/PetApp/PetApp.csproj -c Release -r win-x64 --self-contained false -p:PublishSingleFile=true -o plugin/bin
+dotnet publish src/PetApp/PetApp.csproj -c Release -r win-x64 -p:SelfContained=false -p:PublishSingleFile=true -o plugin/bin
 ```
 
 This is a **framework-dependent** publish (relies on an already-installed
 .NET + WPF desktop runtime), so `pet.exe` comes out well under 1 MB instead
 of bundling the whole runtime. Do not publish with `--self-contained true`
-(or omit the flag) — that pulls in the entire .NET runtime plus native WPF
-DLLs and produces a 100+ MB binary, which does not belong in this
-directory, let alone in git.
+(or omit the flag entirely) — that pulls in the entire .NET runtime plus
+native WPF DLLs and produces a 100+ MB binary, which does not belong in
+this directory, let alone in git.
 
-> Note: in some environments the `--self-contained false` CLI switch does
-> not reliably override an inferred self-contained publish when combined
-> with `-r` and `-p:PublishSingleFile=true`. If the resulting `pet.exe` is
-> large, do a clean rebuild (delete `src/PetApp/bin`, `src/PetApp/obj`,
-> `src/PetCore/bin`, `src/PetCore/obj`, and `plugin/bin`) and republish
-> with `-p:SelfContained=false` in place of `--self-contained false`; verify
-> the resulting `pet.exe` size before committing anything.
+> Note: the more obvious `--self-contained false` CLI switch does not
+> reliably override an inferred self-contained publish in some environments
+> when combined with `-r` and `-p:PublishSingleFile=true` — that is why the
+> command above uses the `-p:SelfContained=false` MSBuild property instead.
+> If the resulting `pet.exe` is large, do a clean rebuild (delete
+> `src/PetApp/bin`, `src/PetApp/obj`, `src/PetCore/bin`, `src/PetCore/obj`,
+> and `plugin/bin`), republish, and verify the resulting `pet.exe` size
+> before committing anything.
 
 ## Why this matters for the plugin to work at all
 

@@ -8,6 +8,13 @@ namespace PetCore;
 /// </summary>
 public sealed class TranscriptTail
 {
+    /// <summary>
+    /// SkipToEnd()가 파일 끝에서부터 거꾸로 훑는 최대 바이트 수.
+    /// 이 안에서 마지막 개행을 못 찾으면, 그 이상 뒤로 훑지 않고 파일 끝으로
+    /// 건너뛴다 — 부착 시 트랜스크립트 전체를 읽는 것을 막기 위한 명시적 상한이다.
+    /// </summary>
+    private const int SkipToEndWindowBytes = 64 * 1024;
+
     private readonly string _path;
 
     public TranscriptTail(string path) => _path = path;
@@ -58,13 +65,16 @@ public sealed class TranscriptTail
     }
 
     /// <summary>
-    /// 읽은 이벤트를 하나도 돌려주지 않고, 읽기 위치만 파일의 현재 끝으로 전진시킨다.
+    /// 읽은 이벤트를 하나도 돌려주지 않고, 읽기 위치만 파일의 현재 끝 근처로 전진시킨다.
     /// 세션에 처음 부착할 때, 이미 쓰인 트랜스크립트 전체를 재생하지 않고 그 뒤의 새 활동만
-    /// 관찰하려는 용도다.
+    /// 관찰하려는 용도다 — 펫은 라이브 인디케이터지 히스토리 뷰어가 아니고, 그 파일은
+    /// 수 메가바이트에 달할 수 있다.
     ///
-    /// ReadNew()와 정확히 같은 방식으로 줄 경계에 맞춘다 — 아직 개행으로 끝나지 않은,
-    /// 쓰는 중인 마지막 줄은 절대 건너뛰지 않는다. 그 줄은 완성될 때까지 Position 밖에
-    /// 남아 있다가, 완성되면 다음 ReadNew()에서 정확히 한 번 전달된다.
+    /// ReadNew()가 쓰는 TryReadToLastNewline()은 Position부터 "앞으로" 읽으므로 여기서
+    /// 재사용하면 안 된다 — 첫 부착 시 Position은 0이라, 파일 전체를 메모리에 올리게 된다.
+    /// 대신 파일 끝에서부터 최대 SkipToEndWindowBytes만큼만 "거꾸로" 훑어 그 안의 마지막
+    /// 개행을 찾는다. 그 개행 바로 뒤로 Position을 놓아, 다음 ReadNew()가 깨끗한 줄 경계에서
+    /// 시작하고 아직 쓰는 중인 마지막 줄을 건너뛰어 유실하지 않게 한다.
     /// </summary>
     public void SkipToEnd()
     {
@@ -74,9 +84,37 @@ public sealed class TranscriptTail
         try
         {
             using var stream = OpenRead();
+            var length = stream.Length;
 
-            if (TryReadToLastNewline(stream, out _, out var completeLength))
-                Position += completeLength;
+            var windowSize = (int)Math.Min(SkipToEndWindowBytes, length);
+            var windowStart = length - windowSize;
+            stream.Seek(windowStart, SeekOrigin.Begin);
+
+            var buffer = new byte[windowSize];
+            var totalRead = 0;
+            while (totalRead < windowSize)
+            {
+                var n = stream.Read(buffer, totalRead, windowSize - totalRead);
+                if (n == 0) break;   // 예상보다 적게 읽혔다 — 읽은 만큼만 훑는다.
+                totalRead += n;
+            }
+
+            var lastNewline = totalRead > 0
+                ? Array.LastIndexOf(buffer, (byte)'\n', totalRead - 1)
+                : -1;
+
+            if (lastNewline >= 0)
+            {
+                Position = windowStart + lastNewline + 1;
+            }
+            else
+            {
+                // 윈도우 안에 개행이 하나도 없다 — 더 뒤로 훑지 않고 파일 끝으로
+                // 건너뛴다. 부착은 어차피 이력을 의도적으로 버리는 동작이므로,
+                // 이 순간 기록 중이던 줄 한 줄(최대)을 잃는 것이 무제한으로
+                // 뒤로 훑는 것보다 낫다.
+                Position = length;
+            }
         }
         catch (IOException)
         {

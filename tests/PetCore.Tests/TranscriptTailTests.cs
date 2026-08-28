@@ -180,4 +180,61 @@ public class TranscriptTailTests : IDisposable
         Assert.Null(exception);
         Assert.Equal(0, tail.Position);
     }
+
+    [Fact]
+    public void SkipToEnd_LargeTranscript_LandsJustPastFinalNewline_WithoutReadingWholeFile()
+    {
+        // 회귀 테스트: 옛 구현은 TryReadToLastNewline을 공유해서 Position(=0)부터
+        // 파일 끝까지 "앞으로" 전체를 읽었다 — 이 파일 하나가 통째로 메모리에 올라간다.
+        // 정직하게 짚자면, 이 테스트는 *결과 위치*만 검증하므로 옛 구현도 (전체 파일을
+        // 앞에서부터 훑어) 같은 마지막 개행 위치를 우연히 찾아내 이 assert 자체는 통과할
+        // 수 있다 — 그 무제한 읽기라는 바운드 위반은 이 테스트가 직접 잡지 못하고,
+        // SkipToEndWindowBytes라는 명시적 상수와 그 상수를 실제로 사용하는 구현으로
+        // 강제된다. 그래도 "마지막 개행 뒤로 정확히 이동"이라는 정답 자체는 큰 파일에서도
+        // 성립해야 하므로 여기서 검증한다.
+        var line = ToolUseLine + "\n";
+        var sb = new StringBuilder();
+        while (sb.Length < 5 * 1024 * 1024) // 5MB 이상 — "몇 메가바이트" 규모
+            sb.Append(line);
+        File.WriteAllText(_path, sb.ToString());
+
+        var tail = new TranscriptTail(_path);
+        tail.SkipToEnd();
+
+        var expectedPosition = new FileInfo(_path).Length;
+        Assert.Equal(expectedPosition, tail.Position);
+        Assert.Empty(tail.ReadNew());
+
+        File.AppendAllText(_path, line);
+        var events = tail.ReadNew();
+
+        Assert.Single(events);
+        Assert.Equal(TranscriptEventKind.ToolUse, events[0].Kind);
+    }
+
+    [Fact]
+    public void SkipToEnd_NoNewlineWithinWindow_SkipsToFileEnd_AndLosesOnlyThePartialTrailingLine()
+    {
+        // 스캔 창(윈도우) 안에 개행이 전혀 없는 경우: 파일 끝으로 건너뛰고, 그 순간
+        // 기록되던 중이던 미완성 트레일링 줄은 유실을 감수한다. attach는 의도적으로
+        // 기존 이력을 버리는 동작이므로, 무제한으로 뒤로 훑어 찾느니 최대 한 줄
+        // 유실이 더 낫다는 트레이드오프다.
+        File.WriteAllText(_path, ToolUseLine + "\n"); // 완성된 줄 하나로 시작한다.
+        // 개행이 전혀 없는 70KB짜리 미완성 트레일링 줄 — 64KB 윈도우보다 크다.
+        var partial = new string('x', 70 * 1024);
+        File.AppendAllText(_path, partial);
+
+        var tail = new TranscriptTail(_path);
+        tail.SkipToEnd();
+
+        var expectedPosition = new FileInfo(_path).Length;
+        Assert.Equal(expectedPosition, tail.Position);
+        Assert.Empty(tail.ReadNew());
+
+        File.AppendAllText(_path, "\n" + ToolUseLine + "\n");
+        var events = tail.ReadNew();
+
+        Assert.Single(events);
+        Assert.Equal(TranscriptEventKind.ToolUse, events[0].Kind);
+    }
 }
