@@ -139,7 +139,7 @@ public class UsageTrackerTests : IDisposable
         Assert.True(new UsageTracker(ProjectsRoot, store, new TranscriptCostScanner()).Refresh().LeveledUp);
     }
 
-    [Fact]
+    [WindowsOnlyFact]
     public void AFailedEnumerationLeavesThePreviousStateIntactAndDoesNotSpuriouslyLevelUp()
     {
         // SessionRegistryTests의 dangling NTFS junction 기법을 그대로 쓰되, 정션을 트리 중간이
@@ -149,7 +149,8 @@ public class UsageTrackerTests : IDisposable
         // 폴더 접근을 막아도 백업 시맨틱스 때문에 우회되어 막히지 않는 것도 확인했다.
         // 반면 열거의 *루트 자체*가 매달린 정션이면 Directory.Exists 는 true 를 주면서도
         // .ToList() 가 DirectoryNotFoundException 을 던진다 — 권한과 무관하게 결정적이다.
-        if (!OperatingSystem.IsWindows()) return;
+        // Windows 전용이라는 사실은 [WindowsOnlyFact] 로 명시한다 — 예전처럼 조용히
+        // return 하면 다른 OS에서 이 테스트가 아무것도 안 하고도 초록으로 보고된다.
 
         // 사이클 N: 정상 스캔. 총액 $30, 레벨 29가 저장된다.
         WriteTranscript("proj-a", "s1.jsonl", Line("m1", 1_200_000));
@@ -287,5 +288,20 @@ public class UsageTrackerTests : IDisposable
     {
         public int Calls;
         public override decimal ScanFile(string path) { Calls++; return 0m; }
+    }
+}
+
+/// <summary>
+/// Windows 전용 테스트를 xUnit 의 Skip 메커니즘으로 명시적으로 건너뛴다. 예전처럼 테스트
+/// 본문 맨 위에서 "if (!OperatingSystem.IsWindows()) return;" 으로 조용히 빠지면, 아무것도
+/// 검증하지 않았는데도 결과가 "통과"로 보고되어 아무도 눈치채지 못한다. 이 attribute 를
+/// 쓰면 다른 OS에서 "건너뜀"으로 명확히 표시된다.
+/// </summary>
+public sealed class WindowsOnlyFactAttribute : FactAttribute
+{
+    public WindowsOnlyFactAttribute()
+    {
+        if (!OperatingSystem.IsWindows())
+            Skip = "Windows 전용: NTFS 정션(mklink /J) 조작에 의존한다.";
     }
 }

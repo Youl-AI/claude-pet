@@ -42,6 +42,21 @@ public class TranscriptCostScannerTests : IDisposable
     }
 
     [Fact]
+    public void CountsARepeatedMessageIdOnceEvenWhenTheUsagePayloadsDiffer()
+    {
+        // 위 CountsARepeatedMessageIdExactlyOnce 의 고정물은 세 줄이 바이트 단위로 완전히
+        // 동일하다 — 그래서 "줄 자체"를 HashSet 에 넣는 잘못된 구현도 이 테스트를 통과한다.
+        // 여기서는 같은 message.id 인데 usage 값이 서로 다른 두 줄을 넣어, 중복 판정이
+        // 실제로 message.id 로 이뤄지는지(줄 내용이 아니라) 못박는다. 두 번째 줄의 훨씬 큰
+        // 비용이 더해지면 안 된다 — 첫 번째 payload만 세어야 한다.
+        var path = WriteFile("dup-diff-payload.jsonl",
+            Line("msg_1", "claude-opus-5", 1_000_000),   // $25 — 이것만 세어져야 한다
+            Line("msg_1", "claude-opus-5", 4_000_000));  // $100 — 같은 id 라 버려져야 한다
+
+        Assert.Equal(25m, new TranscriptCostScanner().ScanFile(path));
+    }
+
+    [Fact]
     public void DeduplicatesEvenWhenRepeatsAreFarApart()
     {
         // 실측: 같은 id 가 최대 6,416줄 떨어져 다시 나온다. 인접 줄만 보는 방식으로는 못 잡는다.
@@ -62,6 +77,11 @@ public class TranscriptCostScannerTests : IDisposable
             "not json",
             Line("msg_1", "claude-opus-5", 1_000_000),
             "{\"message\":",
+            // "usage" 라는 글자를 담고 있어 값싼 사전 필터(Contains("\"usage\""))를 통과한
+            // 뒤 실제 파서(UsageLineParser.TryParse)의 예외 경로까지 도달하는 손상된 줄.
+            // 이게 없으면 이 테스트의 "malformed" 줄들은 전부 필터에서 걸러져 파서 자체는
+            // 한 번도 실패 경로를 타지 않는다.
+            "{\"message\":{\"usage\":",
             "",
             Line("msg_2", "claude-opus-5", 1_000_000));
 
