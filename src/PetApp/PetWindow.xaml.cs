@@ -240,25 +240,38 @@ public partial class PetWindow : Window
             return;
         }
 
-        if (level != _level)
+        // 여기부터는 UI 스레드에서 실제로 요소를 건드리는 부분이다. App.xaml.cs 에는
+        // DispatcherUnhandledException 핸들러가 없으므로, 여기서 뭐가 되었든 던지면
+        // 유일한 UI 스레드의 미처리 예외가 되어 프로세스 전체가 죽는다. 명패 렌더링이나
+        // 레벨 표시 하나 실패했다고 펫 전체가 죽어서는 안 되므로 통째로 방어한다.
+        // 종류를 열거하지 않는다 — catch(IOException) 만 잡았다가 다른 예외에 뚫린
+        // 이력이 이 저장소에 있다.
+        try
         {
-            _level = level;
-            Plate.Source = PlateRenderer.Render(level);
+            if (level != _level)
+            {
+                _level = level;
+                Plate.Source = PlateRenderer.Render(level);
 
-            // 명패는 펫 왼쪽에, 간격 GapPx 를 두고 붙는다. 몸의 왼쪽 첫 픽셀이 셀 안에서
-            // PetBodyLeftPx 이므로 그만큼 더해서 판의 오른쪽 끝을 잡는다.
-            var plateWidthPx = PlateRenderer.PlateWidthFor(level) * PixelScale;
-            var petBodyLeftPx = PetCellOriginX + PetBodyLeftPx * PixelScale;
-            Canvas.SetLeft(Plate, petBodyLeftPx - PlateRenderer.GapPx * PixelScale - plateWidthPx);
+                // 명패는 펫 왼쪽에, 간격 GapPx 를 두고 붙는다. 몸의 왼쪽 첫 픽셀이 셀 안에서
+                // PetBodyLeftPx 이므로 그만큼 더해서 판의 오른쪽 끝을 잡는다.
+                var plateWidthPx = PlateRenderer.PlateWidthFor(level) * PixelScale;
+                var petBodyLeftPx = PetCellOriginX + PetBodyLeftPx * PixelScale;
+                Canvas.SetLeft(Plate, petBodyLeftPx - PlateRenderer.GapPx * PixelScale - plateWidthPx);
 
-            Plate.Width = plateWidthPx;
-            Plate.Height = PlateRenderer.PlateHeight * PixelScale;
-            // 판의 세로 중심을 몸통 눈높이에 맞춘다 (스프라이트 y 15..23 구간).
-            Canvas.SetTop(Plate, 15 * PixelScale);
+                Plate.Width = plateWidthPx;
+                Plate.Height = PlateRenderer.PlateHeight * PixelScale;
+                // 판의 세로 중심을 몸통 눈높이에 맞춘다 (스프라이트 y 15..23 구간).
+                Canvas.SetTop(Plate, 15 * PixelScale);
+            }
+
+            if (leveledUp && _flashFrames is not null)
+                _flashFrame = 0;
         }
-
-        if (leveledUp && _flashFrames is not null)
-            _flashFrame = 0;
+        catch (Exception)
+        {
+            // 명패/이펙트 갱신 실패는 무시한다. 펫 애니메이션은 계속 돈다.
+        }
     }
 
     private static BitmapSource[]? LoadFlashFrames()
