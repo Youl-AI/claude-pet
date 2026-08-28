@@ -116,7 +116,13 @@ function Invoke-PetRecovery {
     #    "The process cannot access the file because it is being used by another
     #    process"). 펫은 한 마리뿐이라 처음 띄운 세션의 폴더를 계속 붙잡고 있고,
     #    작업 표시줄에도 Alt+Tab 에도 안 보여서 사용자가 원인을 찾을 수 없다.
-    #    플러그인 자기 폴더를 물게 해서 사용자 작업물에서 손을 뗀다.
+    #
+    #    $DataDir 를 쓰는 이유(=$PluginRoot 를 쓰지 않는 이유): 플러그인 캐시는
+    #    버전별 디렉터리라 업데이트·재설치 때 Claude Code 가 옛 버전을 지운다.
+    #    펫이 거기를 물고 있으면 그 정리가 "Device or resource busy" 로 실패한다
+    #    — 실제로 이 값을 $PluginRoot 로 뒀을 때 캐시 삭제가 그렇게 막혔다.
+    #    데이터 디렉터리는 펫 자신의 저장소라 물고 있어도 막을 것이 없고,
+    #    혹시 상대 경로가 새더라도 사용자 작업물이 아니라 여기에 떨어진다.
     #
     #    DOTNET_DISABLE_GUI_ERRORS: 위 Test-DesktopRuntime 를 통과했더라도(예: 확인이
     #    예외로 실패해 $true 를 돌려준 경우) 런타임이 실제로는 없을 수 있다. 이 변수가
@@ -127,7 +133,7 @@ function Invoke-PetRecovery {
     $env:DOTNET_DISABLE_GUI_ERRORS = '1'
     try {
         Start-Process -FilePath $exe `
-                      -WorkingDirectory $PluginRoot `
+                      -WorkingDirectory $DataDir `
                       -WindowStyle Hidden `
                       -ErrorAction SilentlyContinue
     }
