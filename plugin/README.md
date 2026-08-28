@@ -4,16 +4,23 @@ This is the Claude Code plugin package: hook scripts under `hooks/`, the
 plugin manifest under `.claude-plugin/`, and a `bin/` directory that holds
 the built pet executable.
 
-## `bin/pet.exe` is a build artifact, not source
+## `bin/pet.exe` IS tracked in git
 
-`plugin/bin/` is **not tracked in git** (see `.gitignore`). It is produced
-by publishing `src/PetApp`, and it must be rebuilt after every fresh
-checkout before the plugin will do anything visible.
+`plugin/bin/pet.exe` is committed on purpose. A marketplace entry with
+`"source": "./plugin"` is delivered to installing users by a **git clone**,
+which carries only tracked files — so an ignored binary simply does not
+reach them, and `session_start.ps1` then silently skips launching. The old
+`.gitignore` had a bare `bin/`, which matches at any depth and swallowed
+this directory; it is now scoped to `src/**/bin/` and `tests/**/bin/`.
+
+Debug symbols (`*.pdb`) stay ignored: they are useless to users and embed
+the author's absolute build paths (including their Windows username).
+Rebuild with the command below after changing any C# source.
 
 Build it with:
 
 ```
-dotnet publish src/PetApp/PetApp.csproj -c Release -r win-x64 -p:SelfContained=false -p:PublishSingleFile=true -o plugin/bin
+dotnet publish src/PetApp/PetApp.csproj -c Release -r win-x64   -p:SelfContained=false -p:PublishSingleFile=true   -p:DebugType=none -p:DebugSymbols=false   -o plugin/bin
 ```
 
 This is a **framework-dependent** publish (relies on an already-installed

@@ -11,6 +11,11 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
     <AssemblyName>pet</AssemblyName>
+    <!-- 롤포워드 기본값(Minor)은 메이저 버전을 넘지 않는다. 즉 net10 로 빌드한
+         앱은 .NET 11 만 설치된 머신에서 "You must install or update .NET" 으로
+         기동 실패한다(실측 확인). LatestMajor 는 더 높은 메이저 런타임을
+         받아들이므로, 사용자가 런타임을 올려도 펫이 계속 동작한다. -->
+    <RollForward>LatestMajor</RollForward>
   </PropertyGroup>
 
   <ItemGroup>
