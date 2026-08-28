@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
+using System.Threading.Tasks;
 using System.Windows.Threading;
 using PetCore;
 
@@ -23,6 +24,21 @@ internal sealed class PetHost
     // 만큼은 짧게 잡는다 (스펙 §8 "거짓 대기 신호" 금지와 같은 이유).
     private static readonly long StaleAfterMs = (long)TimeSpan.FromMinutes(2).TotalMilliseconds;
 
+    /// <summary>
+    /// 레벨 갱신 주기. 1Hz 폴링에 얹지 않는 이유는 매초 파일을 재스캔할 이유가 없기 때문이다.
+    /// 레벨 하나가 오르는 데 가장 빠른 사용자도 3일이 걸리므로 30초 지연은 무의미하다 (스펙 §7.4).
+    /// </summary>
+    private const int LevelPollTicks = 30;
+
+    private readonly UsageTracker _usage;
+    private int _levelTickCounter;
+
+    // 이전 Refresh 가 아직 백그라운드에서 도는 중이면 겹쳐 돌리지 않는다. 콜드 스캔은
+    // 파일 수백 개·1GB 이상을 읽을 수 있어(UsageTracker 문서 참고) 30초 안에 안 끝날
+    // 수도 있다. UI 스레드(이 카운터를 읽는 쪽)와 스레드 풀 태스크(이걸 false 로
+    // 되돌리는 쪽)가 같이 건드리므로 volatile 로 가시성을 보장한다.
+    private volatile bool _levelRefreshInFlight;
+
     private readonly PetWindow _window;
     private readonly string _dataDir;
     private readonly SessionRegistry _registry;
@@ -40,6 +56,12 @@ internal sealed class PetHost
         _dataDir = dataDir;
         _registry = new SessionRegistry(Path.Combine(dataDir, "sessions"));
         _watchdog = new Watchdog(new WindowsProcessProbe(), Grace);
+
+        // 트랜스크립트는 데이터 디렉터리가 아니라 Claude Code 의 프로젝트 디렉터리에 있다.
+        var projectsRoot = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+            ".claude", "projects");
+        _usage = new UsageTracker(projectsRoot, new UsageStore(dataDir), new TranscriptCostScanner());
 
         _timer = new DispatcherTimer(DispatcherPriority.Background)
         {
@@ -106,6 +128,41 @@ internal sealed class PetHost
 
         DrainNotifications();
         _window.SetState(PetStateMachine.Aggregate(_machines.Values));
+
+        // 30초에 한 번만 레벨을 다시 센다. PollCore 는 DispatcherTimer.Tick 콜백이라
+        // PetWindow 의 12fps 스프라이트 루프와 같은(유일한) UI 스레드에서 돈다
+        // (App.xaml.cs: 이 앱은 STA 메인 스레드 하나뿐이고 별도 Dispatcher를 만들지
+        // 않는다). Refresh 는 콜드 스캔 시 파일 수백 개·1GB 이상을 읽을 수 있으므로
+        // (UsageTracker 문서 참고) 여기서 그대로 부르면 스캔하는 동안 애니메이션이
+        // 눈에 띄게 멎는다. 그래서 스레드 풀로 넘긴다.
+        //
+        // Refresh 자체는 절대 던지지 않지만, 이걸 백그라운드로 넘기는 코드는 그 계약
+        // 밖의 새 코드이므로 태스크 본문 전체를 catch(Exception)으로 감싼다 — 관찰되지
+        // 않은 태스크 예외가 프로세스를 죽이는 일은 없어야 한다. 이전 Refresh 가 아직
+        // 끝나지 않았으면 겹쳐 돌리지 않고 다음 주기로 미룬다(카운터를 리셋하지 않는다).
+        if (_levelTickCounter <= 0 && !_levelRefreshInFlight)
+        {
+            _levelRefreshInFlight = true;
+            _levelTickCounter = LevelPollTicks;
+
+            Task.Run(() =>
+            {
+                try
+                {
+                    var snapshot = _usage.Refresh();
+                    _window.SetLevel(snapshot.Level, snapshot.LeveledUp);
+                }
+                catch (Exception)
+                {
+                    // 다음 주기에 다시 시도한다.
+                }
+                finally
+                {
+                    _levelRefreshInFlight = false;
+                }
+            });
+        }
+        _levelTickCounter--;
     }
 
     private void DrainNotifications()
