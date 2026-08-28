@@ -1,5 +1,7 @@
 using System;
 using System.Runtime.InteropServices;
+using System.Text;
+using PetCore;
 
 namespace PetApp;
 
@@ -28,6 +30,16 @@ internal static class NativeMethods
     [DllImport("user32.dll")]
     private static extern bool GetMonitorInfo(IntPtr hMonitor, ref MONITORINFO lpmi);
 
+    // 바탕화면을 식별하는 공식 방법. "Progman"이라는 클래스 이름으로
+    // 문자열 매칭하는 대신 이 핸들과 비교한다 — 문서화된 API고,
+    // WorkerW처럼 바탕화면을 호스팅할 수 있는 다른 창까지 함께
+    // 잡아내지도 않는다(그건 클래스 이름 목록에서 별도로 걸러낸다).
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetShellWindow();
+
+    [DllImport("user32.dll", CharSet = CharSet.Auto)]
+    private static extern int GetClassName(IntPtr hWnd, StringBuilder lpClassName, int nMaxCount);
+
     [StructLayout(LayoutKind.Sequential)]
     private struct RECT { public int Left, Top, Right, Bottom; }
 
@@ -51,19 +63,52 @@ internal static class NativeMethods
             style | WS_EX_TRANSPARENT | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE);
     }
 
-    /// <summary>전체화면 앱(발표·영상·게임)이 앞에 있으면 펫은 숨어야 한다.</summary>
+    /// <summary>
+    /// 전체화면 앱(발표·영상·게임)이 앞에 있으면 펫은 숨어야 한다.
+    ///
+    /// 판정 로직 자체(사각형이 모니터를 뒤덮는지, 데스크톱/셸 창은
+    /// 아닌지)는 FullscreenWindowClassifier로 뽑아 두었다 — 여기서는
+    /// P/Invoke로 원재료(전경 창 핸들, 셸 창 여부, 클래스 이름, 창/모니터
+    /// 사각형)만 모아 넘긴다. 판정 로직을 Windows API와 분리해야 유닛
+    /// 테스트가 가능하고, 그 테스트가 실제로 바탕화면(Progman)이 항상
+    /// "전체화면"으로 오판되던 버그를 잡아낸다.
+    /// </summary>
     public static bool IsFullscreenAppForeground()
     {
-        var foreground = GetForegroundWindow();
-        if (foreground == IntPtr.Zero) return false;
-        if (!GetWindowRect(foreground, out var windowRect)) return false;
+        try
+        {
+            var foreground = GetForegroundWindow();
+            if (foreground == IntPtr.Zero) return false;
+            if (!GetWindowRect(foreground, out var windowRect)) return false;
 
-        var monitor = MonitorFromWindow(foreground, 2 /* MONITOR_DEFAULTTONEAREST */);
-        var info = new MONITORINFO { cbSize = Marshal.SizeOf<MONITORINFO>() };
-        if (!GetMonitorInfo(monitor, ref info)) return false;
+            var monitor = MonitorFromWindow(foreground, 2 /* MONITOR_DEFAULTTONEAREST */);
+            var info = new MONITORINFO { cbSize = Marshal.SizeOf<MONITORINFO>() };
+            if (!GetMonitorInfo(monitor, ref info)) return false;
 
-        var m = info.rcMonitor;
-        return windowRect.Left <= m.Left && windowRect.Top <= m.Top
-            && windowRect.Right >= m.Right && windowRect.Bottom >= m.Bottom;
+            var isShellWindow = foreground == GetShellWindow();
+
+            var classNameBuffer = new StringBuilder(256);
+            GetClassName(foreground, classNameBuffer, classNameBuffer.Capacity);
+
+            return FullscreenWindowClassifier.IsFullscreenApp(
+                ToPixelRect(windowRect),
+                ToPixelRect(info.rcMonitor),
+                classNameBuffer.ToString(),
+                isShellWindow);
+        }
+        catch (Exception)
+        {
+            // 이 메서드의 계약은 "절대 던지지 않는다"이다 — 매초 폴링되는
+            // 전체화면 검사가 예외를 던지면 펫 전체가 죽는다. 방해 0
+            // 제약상 예외 종류를 하나씩 열거하기보다(그 방식은 이
+            // 프로젝트에서 이미 실패한 적 있다 — WindowsProcessProbe 참고)
+            // 이 메서드 경계 전체를 catch-all로 감싸 구조적으로 보장한다.
+            // 판정 실패 시엔 숨기지 않는 쪽(false)이 안전하다 — 최악의
+            // 대가는 펫이 전체화면 앱 위에 계속 보이는 것뿐이고, 그 반대
+            // (오탐으로 계속 숨음)가 사용자 경험상 더 나쁘다.
+            return false;
+        }
     }
+
+    private static PixelRect ToPixelRect(RECT rect) => new(rect.Left, rect.Top, rect.Right, rect.Bottom);
 }
