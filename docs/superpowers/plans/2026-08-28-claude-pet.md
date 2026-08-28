@@ -13,7 +13,8 @@
 스펙의 프로젝트 전역 요구사항. **모든 태스크의 요구사항에 암묵적으로 포함된다.**
 
 - **방해 0이 최상위 제약이다.** 다른 모든 요구사항보다 우선하며, 기능이 이와 충돌하면 기능을 버린다.
-- 대상 프레임워크는 `net10.0-windows`. 라이브러리 프로젝트도 동일.
+- 대상 프레임워크: `PetApp`은 `net10.0-windows` (WPF 요구), `PetCore`와 테스트 프로젝트는 `net10.0`.
+  `PetCore`에 Windows 전용 API를 넣지 않는다 — 이 경계가 단위 테스트 가능성을 지킨다.
 - **트랜스크립트 파일은 반드시 `FileAccess.Read` + `FileShare.ReadWrite | FileShare.Delete`로 연다.** 배타적 잠금 금지.
 - **훅 스크립트는 어떤 입력에도 exit 0으로 끝난다.** 오류를 삼킨다.
 - 훅은 `SessionStart`, `Notification`, `SessionEnd` 세 개뿐이며 전부 `"async": true`. `PostToolUse`, `UserPromptSubmit`, `Stop` 훅은 절대 추가하지 않는다.
