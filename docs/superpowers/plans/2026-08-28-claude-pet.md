@@ -17,6 +17,13 @@
   `PetCore`에 Windows 전용 API를 넣지 않는다 — 이 경계가 단위 테스트 가능성을 지킨다.
 - **트랜스크립트 파일은 반드시 `FileAccess.Read` + `FileShare.ReadWrite | FileShare.Delete`로 연다.** 배타적 잠금 금지.
 - **훅 스크립트는 어떤 입력에도 exit 0으로 끝난다.** 오류를 삼킨다.
+- **"절대 던지지 않는다"는 계약은 구조로 보장한다. 예외 종류를 열거하지 않는다.**
+  이 프로젝트에서 이미 세 번 실패한 패턴이다. 실측된 함정:
+  `UnauthorizedAccessException`은 `IOException`이 아니고(NTFS의 삭제 대기 상태에서 나온다),
+  `Win32Exception`은 둘 다 아니며, `Directory.EnumerateFiles`는 지연 평가라 `foreach`를
+  `try` 밖에 두면 `MoveNext()`의 예외가 새어나간다.
+  펫이 실패해도 사용자의 코딩은 멈추지 않아야 하므로, 이 경계들에서는 catch-all이 옳고
+  그 의도를 주석으로 남긴다.
 - 훅은 `SessionStart`, `Notification`, `SessionEnd` 세 개뿐이며 전부 `"async": true`. `PostToolUse`, `UserPromptSubmit`, `Stop` 훅은 절대 추가하지 않는다.
 - 렌더링은 12 fps 고정. 유휴·가림 상태에서는 렌더링 정지.
 - 프로세스 우선순위는 `BelowNormal`.
@@ -696,27 +703,48 @@ public sealed class SessionRegistry
 
     public IReadOnlyList<SessionRecord> ReadAll()
     {
-        if (!Directory.Exists(_directory))
-            return Array.Empty<SessionRecord>();
-
         var records = new List<SessionRecord>();
-        foreach (var file in Directory.EnumerateFiles(_directory, "*.json"))
-        {
-            try
-            {
-                using var stream = new FileStream(
-                    file, FileMode.Open, FileAccess.Read,
-                    FileShare.ReadWrite | FileShare.Delete);
 
-                var record = JsonSerializer.Deserialize<SessionRecord>(stream, Options);
-                if (record is not null && !string.IsNullOrEmpty(record.SessionId))
-                    records.Add(record);
-            }
-            catch (Exception ex) when (ex is JsonException or IOException)
+        // "절대 던지지 않는다"를 구조로 보장한다 (Global Constraints 참조).
+        // 이 디렉터리는 여러 훅 스크립트가 동시에 쓰고 지운다. Directory.Exists 이후에도
+        // 디렉터리가 사라질 수 있고, EnumerateFiles 는 지연 평가라 MoveNext() 에서
+        // 던진다 — 그래서 열거 자체가 이 try 안에 있어야 한다.
+        try
+        {
+            if (!Directory.Exists(_directory))
+                return records;
+
+            foreach (var file in Directory.EnumerateFiles(_directory, "*.json"))
             {
-                // 훅이 쓰는 중일 수 있다. 건너뛴다.
+                try
+                {
+                    using var stream = new FileStream(
+                        file, FileMode.Open, FileAccess.Read,
+                        FileShare.ReadWrite | FileShare.Delete);
+
+                    var record = JsonSerializer.Deserialize<SessionRecord>(stream, Options);
+
+                    // System.Text.Json 은 non-nullable 생성자 매개변수를 강제하지 않는다.
+                    // transcriptPath 가 빠진 JSON 은 null 을 담은 레코드로 역직렬화되므로
+                    // 소비자가 쓰는 필드를 모두 검증한다.
+                    if (record is not null
+                        && !string.IsNullOrEmpty(record.SessionId)
+                        && !string.IsNullOrEmpty(record.TranscriptPath))
+                    {
+                        records.Add(record);
+                    }
+                }
+                catch
+                {
+                    // 이 파일만 건너뛴다. 나머지는 계속 읽는다.
+                }
             }
         }
+        catch
+        {
+            // 열거 도중 디렉터리가 사라진 경우 등. 지금까지 모은 것만 반환한다.
+        }
+
         return records;
     }
 }
@@ -878,13 +906,20 @@ public sealed class WindowsProcessProbe : IProcessProbe
                 .ToUnixTimeMilliseconds();
             return Math.Abs(actual - startUnixMs) <= ToleranceMs;
         }
-        catch (ArgumentException)
+        catch (Exception)
         {
-            return false;   // 해당 PID의 프로세스가 없다.
-        }
-        catch (InvalidOperationException)
-        {
-            return false;   // 조회 중 종료됨.
+            // 살아있다는 확증이 없으면 죽은 것으로 본다.
+            //
+            // catch-all은 의도적이다. 이 메서드는 예외를 던져서는 안 되고,
+            // 예외 종류를 하나씩 열거하는 방식은 이 프로젝트에서 이미 세 번 실패했다.
+            // 실제로 나올 수 있는 것만 해도: 프로세스가 없으면 ArgumentException,
+            // 조회 도중 종료되면 InvalidOperationException, 권한이 없는(예: 상승된)
+            // 프로세스의 StartTime을 읽으면 Win32Exception — 이 중 마지막은
+            // IOException 계열도 SystemException 계열도 아니다.
+            //
+            // 오탐(살아있는데 죽었다고 판단)의 대가는 워치독이 펫을 조금 일찍 닫는 것뿐이고,
+            // 미탐의 대가는 좀비 프로세스가 남는 것이다. 전자가 낫다.
+            return false;
         }
     }
 }
@@ -2210,7 +2245,20 @@ internal sealed class PetHost
         var notifyDir = Path.Combine(_dataDir, "notify");
         if (!Directory.Exists(notifyDir)) return;
 
-        foreach (var file in Directory.EnumerateFiles(notifyDir, "*.json"))
+        // 열거 자체를 try 안에 넣는다. Directory.EnumerateFiles 는 지연 평가라
+        // MoveNext() 에서 던질 수 있고, foreach 를 try 밖에 두면 그 예외가 새어나간다.
+        // (이 실수는 이 프로젝트에서 이미 SessionRegistry 에서 한 번 잡혔다.)
+        List<string> files;
+        try
+        {
+            files = Directory.EnumerateFiles(notifyDir, "*.json").ToList();
+        }
+        catch (Exception)
+        {
+            return;   // 다음 주기에 다시 본다.
+        }
+
+        foreach (var file in files)
         {
             try
             {
@@ -2234,9 +2282,12 @@ internal sealed class PetHost
                 _lastNotifyMs = stamp;
                 File.Delete(file);
             }
-            catch (Exception ex) when (ex is IOException or JsonException)
+            catch (Exception)
             {
                 // 훅이 쓰는 중일 수 있다. 다음 주기에 다시 본다.
+                // catch-all은 의도적이다 — 장식용 펫의 알림 처리가 실패했다고 해서
+                // 펫이 죽어서는 안 된다. IOException·JsonException만 잡으면
+                // UnauthorizedAccessException 같은 게 새어나간다.
             }
         }
     }
