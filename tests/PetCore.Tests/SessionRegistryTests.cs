@@ -68,6 +68,10 @@ public class SessionRegistryTests : IDisposable
     [Fact]
     public void ReadAll_DoesNotThrow_WhenEnumerationFailsMidIteration()
     {
+        // This test relies on Windows NTFS junction reparse points, which are not
+        // portable. On non-Windows platforms, the junction trick is unavailable.
+        if (!OperatingSystem.IsWindows()) return;
+
         // Deterministically reproduce the TOCTOU gap Finding 1 describes:
         // Directory.Exists must return true, but Directory.EnumerateFiles (or the
         // foreach's implicit MoveNext) must throw once enumeration actually runs.
@@ -101,6 +105,11 @@ public class SessionRegistryTests : IDisposable
         }
         finally
         {
+            // Note: The setup steps (Directory.CreateDirectory, mklink, and Directory.Delete above)
+            // are not wrapped in try/finally. That is safe: if an exception fires before we reach
+            // the finally, the test's Dispose() will clean up the temp directory recursively.
+            // Directory.Delete(..., recursive: true) unlinks reparse points rather than following them,
+            // so no orphaned junction or runaway recursion can result.
             try { Directory.Delete(junction); } catch { /* best-effort cleanup */ }
         }
     }
