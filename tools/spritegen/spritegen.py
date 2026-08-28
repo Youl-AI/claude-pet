@@ -31,7 +31,7 @@ from pathlib import Path
 
 FRAME = 32
 COLS = 8
-ROWS = 6
+ROWS = 8
 W, H = FRAME * COLS, FRAME * ROWS
 
 # --- 레스트 포즈 지오메트리 (셀 기준 상대좌표, 양끝 포함 구간) ---
@@ -59,29 +59,45 @@ assert LEG_Y1 == FRAME - 1, "발이 프레임의 마지막 행(바닥)에 있어
 
 # --- 색상: 상태별 몸통 색 (PetState enum 순서와 반드시 일치) ---
 ROW_BODY_COLORS = (
-    (214, 132, 90),   # 0 Idle     — 원래의 산호주황, "평상시" 기준색
-    (120, 180, 240),  # 1 Reading  — 파랑
-    (140, 225, 150),  # 2 Writing  — 초록
-    (250, 190, 70),   # 3 Running  — 호박색
-    (150, 150, 165),  # 4 Error    — 채도 낮은 회청색, 멍한 느낌
-    (230, 70, 60),    # 5 NeedsYou — 강렬한 빨강
+    (214, 132, 90),   # 0 Idle      — 산호주황, "평상시" 기준색
+    (120, 180, 240),  # 1 Reading   — 파랑
+    (140, 225, 150),  # 2 Writing   — 초록
+    (250, 190, 70),   # 3 Running   — 호박색
+    (150, 150, 165),  # 4 Error     — 채도 낮은 회청색, 멍한 느낌
+    (214, 132, 90),   # 5 YourTurn  — Idle과 같은 산호주황(의도된 동일색)
+    (230, 70, 60),    # 6 Blocked   — 강렬한 빨강
+    (52, 50, 60),     # 7 Abandoned — 거의 검정. 순수 검정을 쓰지 않는 이유는
+                      #   어두운 배경화면 위에서 형체가 아예 사라지기 때문이다.
 )
 
-EYE_COLOR = (26, 26, 26)  # 거의 검은 눈 — 기본값 (Idle/Reading/Writing/Running/Error)
-# NeedsYou는 몸통이 진한 빨강이라 검은 눈이 묻히는 느낌이 덜하긴 하지만, 이
-# 상태가 가장 중요한 신호이므로 눈에도 "번뜩이는" 대비를 주기 위해 밝은 눈을
-# 쓴다. Error는 wince(가로 막대) 모양 자체가 이미 뚜렷해서 검은 눈 그대로도
-# 회청색 몸통 위에서 충분히 읽힌다 — 그래서 Error는 기본 EYE_COLOR를 유지.
-NEEDSYOU_EYE_COLOR = (255, 224, 179)
-ROW_EYE_COLORS = (EYE_COLOR, EYE_COLOR, EYE_COLOR, EYE_COLOR, EYE_COLOR, NEEDSYOU_EYE_COLOR)
+EYE_COLOR = (26, 26, 26)  # 거의 검은 눈 — 밝은 몸통용 기본값
+# Blocked는 몸통이 진한 빨강이라 검은 눈이 묻힌다. 이 상태가 가장 중요한
+# 신호이므로 눈에도 "번뜩이는" 대비를 준다.
+BLOCKED_EYE_COLOR = (255, 224, 179)
+# Abandoned는 몸통이 거의 검정이라 반대로 밝은 눈이 필요하다. 다만 자고
+# 쓰러진 느낌이어야 하므로 채도 없는 흐린 회색으로 낮춘다.
+ABANDONED_EYE_COLOR = (146, 144, 158)
+ROW_EYE_COLORS = (
+    EYE_COLOR, EYE_COLOR, EYE_COLOR, EYE_COLOR, EYE_COLOR,
+    EYE_COLOR,             # 5 YourTurn — 산호주황 위 검은 눈
+    BLOCKED_EYE_COLOR,     # 6 Blocked
+    ABANDONED_EYE_COLOR,   # 7 Abandoned
+)
 
-# --- NeedsYou 전용: 화남 표시(빠직/💢) ---
-# 몸이 위로 이동하면서 비게 된 위쪽 구간에 그린다. 두꺼운 대각선 두 개가
-# 교차하는 "X" 형태 — 굵기는 셀 두 칸 정도, (MARK_CENTER_X, MARK_CENTER_Y)를
-# 중심으로 대칭이며, 펄스에 따라 크기가 줄어들 때도 같은 중심을 공유한다.
-MARK_COLOR = (150, 20, 20)
-MARK_CENTER_X, MARK_CENTER_Y = 24, 6  # 표시 범위: 풀사이즈일 때 x 20..28, y 2..10
+# --- 쓰러진 자세(Abandoned 전용) 지오메트리 ---
+# 서 있는 포즈와 달리 다리가 없다. 몸이 바닥에 눌려 납작하게 퍼진 형태로,
+# 폭은 넓어지고 높이는 절반 이하가 된다. 아래쪽 끝은 서 있을 때의 발과 같은
+# y=31 이라 "바닥에 붙어 있다"는 접지감이 그대로 유지된다.
+LY_BODY_X0, LY_BODY_X1 = 4, 27
+LY_BODY_Y0, LY_BODY_Y1 = 20, 31
+LY_LEFT_NUB_X0, LY_LEFT_NUB_X1 = 2, 3
+LY_RIGHT_NUB_X0, LY_RIGHT_NUB_X1 = 28, 29
+LY_NUB_Y0, LY_NUB_Y1 = 24, 29
+LY_LEFT_EYE_X0, LY_LEFT_EYE_X1 = 9, 12
+LY_RIGHT_EYE_X0, LY_RIGHT_EYE_X1 = 19, 22
+LY_EYE_Y = 24
 
+assert LY_BODY_Y1 == FRAME - 1, "쓰러진 몸의 아래쪽 끝도 바닥(y=31)에 붙어야 함"
 
 def blank():
     return [[(0, 0, 0, 0)] * W for _ in range(H)]
@@ -125,22 +141,115 @@ def draw_eyes(px, ox, oy, dx, dy, mode, eye_color):
         raise ValueError(f"unknown eye mode: {mode}")
 
 
+# --- 머리 위 마크: 빠직(Blocked) / 물음표(YourTurn) ---
+# 마크는 몸통이 아니라 그 위의 빈 공간(투명)에 뜬다. 즉 배경화면이 바로
+# 뒤에 보이므로, 단색으로만 그리면 비슷한 밝기의 배경에서 사라진다.
+# 그래서 두 마크 모두 1px 외곽선을 두른다 — 밝은 배경에서도 어두운
+# 배경에서도 형태가 읽힌다.
+MARK_CENTER_X, MARK_CENTER_Y = 23, 7
+
+ANGER_COLOR, ANGER_OUTLINE = (226, 46, 40), (74, 12, 12)
+QUESTION_COLOR, QUESTION_OUTLINE = (252, 246, 236), (62, 42, 30)
+
+
+def _put_clipped(px, ox, oy, x, y, color):
+    """마크 전용 쓰기. 몸통은 put()의 assert로 셀 밖 침범을 원천 차단하지만,
+    마크는 펄스로 커졌다 작아지고 외곽선이 한 겹 더 붙어서 셀 경계에 닿을 수
+    있다. 마크가 잘리는 것은 허용 가능한 결과이므로(형태는 그대로 읽힌다)
+    여기서는 assert 대신 조용히 잘라낸다."""
+    if 0 <= x < FRAME and 0 <= y < FRAME:
+        px[oy + y][ox + x] = color
+
+
+def _draw_marked_cells(px, ox, oy, cells, color, outline):
+    oc = (*outline, 255)
+    for (x, y) in cells:
+        for ny in (-1, 0, 1):
+            for nx in (-1, 0, 1):
+                if (x + nx, y + ny) not in cells:
+                    _put_clipped(px, ox, oy, x + nx, y + ny, oc)
+    mc = (*color, 255)
+    for (x, y) in cells:
+        _put_clipped(px, ox, oy, x, y, mc)
+
+
+def _rotate90(cells, times):
+    out = set()
+    for (x, y) in cells:
+        for _ in range(times):
+            x, y = -y, x
+        out.add((x, y))
+    return out
+
+
 def draw_anger_mark(px, ox, oy, size):
-    """빠직/💢 anger mark: 두꺼운 대각선 두 개가 교차하는 "X"를 size x size
-    정사각형 안에 근사한다. (MARK_CENTER_X, MARK_CENTER_Y)를 중심으로 그리므로
-    size가 줄어도(pulse) 같은 자리에서 작아지는 것처럼 보인다.
-    size <= 0 이면 아무것도 그리지 않는다 — 펄스가 "꺼진" 프레임.
+    """빠직(💢): 'ㄴ' 모양 직각 획 네 개를 동·서·남·북 네 방위에 하나씩 두고,
+    각각 90도씩 돌려 중심을 둘러싸는 바람개비를 만든다.
+
+    size는 펄스용이다. 0이면 아무것도 그리지 않고(꺼진 프레임), 값이 줄면
+    획 길이와 중심에서의 거리가 함께 줄어 같은 자리에서 작아지는 것처럼 보인다.
     """
     if size <= 0:
         return
-    half = size // 2
-    x0, y0 = MARK_CENTER_X - half, MARK_CENTER_Y - half
-    color = (*MARK_COLOR, 255)
-    for v in range(size):
-        for u in range(size):
-            # 두 대각선(주대각선/부대각선) 근방 픽셀만 칠해 두꺼운 X를 만든다.
-            if abs(u - v) <= 1 or abs(u + v - (size - 1)) <= 1:
-                put(px, ox, oy, x0 + u, y0 + v, color)
+    arm = max(1, round(size * 0.34))    # 획 하나의 길이
+    rad = max(1, round(size * 0.30))    # 중심에서 꺾이는 모서리까지의 거리
+    thick = 2 if size >= 7 else 1       # 작아지면 1px로 얇아진다
+
+    # 기준 'ㄴ': 꺾이는 모서리를 원점에 두고 위로 올라갔다가 오른쪽으로 꺾인다.
+    base = set()
+    for t in range(thick):
+        for i in range(arm + 1):
+            base.add((t, -i))   # 세로획
+            base.add((i, t))    # 가로획
+
+    cells = set()
+    for k, (ux, uy) in enumerate(((0, -1), (1, 0), (0, 1), (-1, 0))):
+        for (x, y) in _rotate90(base, k):
+            cells.add((MARK_CENTER_X + x + ux * rad, MARK_CENTER_Y + y + uy * rad))
+
+    _draw_marked_cells(px, ox, oy, cells, ANGER_COLOR, ANGER_OUTLINE)
+
+
+QUESTION_GLYPH = (
+    ".####.",
+    "##..##",
+    "....##",
+    "...##.",
+    "..##..",
+    "..##..",
+    "......",
+    "..##..",
+    "..##..",
+)
+
+
+def draw_question_mark(px, ox, oy, dy):
+    """YourTurn 전용: 머리 위에 뜬 물음표. dy로 위아래로 살짝 떠다녀
+    "가만히 서서 기다리는" 느낌을 준다."""
+    w, h = len(QUESTION_GLYPH[0]), len(QUESTION_GLYPH)
+    x0 = MARK_CENTER_X - w // 2
+    y0 = MARK_CENTER_Y - h // 2 + dy
+    cells = {
+        (x0 + u, y0 + v)
+        for v, line in enumerate(QUESTION_GLYPH)
+        for u, ch in enumerate(line)
+        if ch == "#"
+    }
+    _draw_marked_cells(px, ox, oy, cells, QUESTION_COLOR, QUESTION_OUTLINE)
+
+
+def draw_pet_lying(px, ox, oy, *, body_color, eye_color, squash=0):
+    """Abandoned 전용 포즈: 다리 없이 바닥에 납작하게 퍼져 누운 몸.
+    squash는 위쪽에서 눌리는 양(0/1) — 아주 느린 호흡처럼 보이게 한다."""
+    body = (*body_color, 255)
+    rect(px, ox, oy, LY_BODY_X0, LY_BODY_X1, LY_BODY_Y0 + squash, LY_BODY_Y1, 0, 0, body)
+    rect(px, ox, oy, LY_LEFT_NUB_X0, LY_LEFT_NUB_X1, LY_NUB_Y0 + squash, LY_NUB_Y1, 0, 0, body)
+    rect(px, ox, oy, LY_RIGHT_NUB_X0, LY_RIGHT_NUB_X1, LY_NUB_Y0 + squash, LY_NUB_Y1, 0, 0, body)
+    # 눈은 항상 감겨 있다 — 가로 막대 한 줄.
+    ec = (*eye_color, 255)
+    ey = LY_EYE_Y + squash
+    rect(px, ox, oy, LY_LEFT_EYE_X0, LY_LEFT_EYE_X1, ey, ey, 0, 0, ec)
+    rect(px, ox, oy, LY_RIGHT_EYE_X0, LY_RIGHT_EYE_X1, ey, ey, 0, 0, ec)
 
 
 def draw_pet(px, ox, oy, *, body_color, eye_color=EYE_COLOR, bob=0, lift=0, dx=0,
@@ -233,41 +342,62 @@ def error_frame(col):
     return dict(dx=ERROR_DX[col], eye_mode="wince")
 
 
-# 5 NeedsYou — 가장 중요한 신호이므로 한눈에 다른 상태와 착각할 수 없어야
-# 한다. 강렬한 빨강 몸통 + 밝은 눈 + 진짜로 발이 바닥을 떠나는 호핑 +
-# 위쪽 여백에 펄스하는 화남 표시(💢)를 함께 쓴다.
+# 5 YourTurn — 턴이 끝나 사람 차례. Idle과 몸통 색이 같으므로(의도된 선택)
+# 색만으로는 구분되지 않는다. 그래서 두 가지로 갈라 놓는다: 머리 위에 떠 있는
+# 물음표, 그리고 "제자리에 서서 기다리는" 움직임(Idle은 배회한다).
+YOURTURN_BOB = (0, 0, 1, 1, 0, 0, 0, 0)
+YOURTURN_Q_DY = (0, 0, -1, -1, 0, 0, 1, 0)
+
+
+def yourturn_frame(col):
+    return dict(bob=YOURTURN_BOB[col], question_dy=YOURTURN_Q_DY[col])
+
+
+# 6 Blocked — 권한 승인 대기. 클로드가 실제로 멈춰서 사람 없이는 진행할 수
+# 없는 유일한 상태이므로 가장 강한 신호를 준다: 빨강 몸통 + 밝은 눈 + 진짜로
+# 발이 바닥을 떠나는 호핑 + 펄스하는 빠직.
 #
-# 다른 상태와 달리 이 상태의 점프는 "진짜로 떠야" 하므로 bob이 아니라 lift를
-# 쓴다 — lift는 발까지 포함해 캐릭터 전체를 들어올린다. 그래도 8프레임 중
-# 과반(col 0,1,5,6,7 = 5프레임)은 lift=0으로 발이 y=31에 그대로 붙어 있고,
-# 도약 정점 근처(col 2,3,4)만 진짜로 뜬다. col 1/6은 도약 직전/직후의 웅크림
-# (bob>0, 발은 그대로 바닥)이라 착지가 "쿵" 하고 눌리는 느낌을 준다.
-NEEDSYOU_BOB = (0, 2, 0, 0, 0, 0, 2, 0)
-NEEDSYOU_LIFT = (0, 0, -2, -4, -2, 0, 0, 0)
-NEEDSYOU_MARK_SIZE = (0, 5, 9, 9, 9, 7, 5, 3)
+# 이 상태의 점프는 "진짜로 떠야" 하므로 bob이 아니라 lift를 쓴다 — lift는
+# 발까지 포함해 캐릭터 전체를 들어올린다. 그래도 8프레임 중 과반(col
+# 0,1,5,6,7)은 lift=0으로 발이 y=31에 붙어 있고, 도약 정점 근처(col 2,3,4)만
+# 실제로 뜬다. col 1/6은 도약 직전/직후의 웅크림이라 착지가 "쿵" 눌리는
+# 느낌을 준다.
+BLOCKED_BOB = (0, 2, 0, 0, 0, 0, 2, 0)
+BLOCKED_LIFT = (0, 0, -2, -4, -2, 0, 0, 0)
+BLOCKED_MARK_SIZE = (0, 5, 9, 9, 9, 7, 5, 3)
 
 
-def needsyou_frame(col):
+def blocked_frame(col):
     return dict(
-        bob=NEEDSYOU_BOB[col],
-        lift=NEEDSYOU_LIFT[col],
-        mark_size=NEEDSYOU_MARK_SIZE[col],
+        bob=BLOCKED_BOB[col],
+        lift=BLOCKED_LIFT[col],
+        mark_size=BLOCKED_MARK_SIZE[col],
     )
 
 
+# 7 Abandoned — 60초 방치. 기다리다 지쳐 쓰러진 모습. 검게 가라앉은 몸이
+# 바닥에 납작하게 눌려 있고, 아주 느린 호흡(squash)만 남는다. 다리도 눈도
+# 없어서 다른 어떤 상태와도 실루엣이 겹치지 않는다.
+ABANDONED_SQUASH = (0, 0, 0, 1, 1, 1, 1, 0)
+
+
+def abandoned_frame(col):
+    return dict(lying=True, squash=ABANDONED_SQUASH[col])
+
+
 ROW_FRAME_FNS = (
-    idle_frame,      # 0 Idle
-    reading_frame,   # 1 Reading
-    writing_frame,   # 2 Writing
-    running_frame,   # 3 Running
-    error_frame,     # 4 Error
-    needsyou_frame,  # 5 NeedsYou
+    idle_frame,       # 0 Idle
+    reading_frame,    # 1 Reading
+    writing_frame,    # 2 Writing
+    running_frame,    # 3 Running
+    error_frame,      # 4 Error
+    yourturn_frame,   # 5 YourTurn
+    blocked_frame,    # 6 Blocked
+    abandoned_frame,  # 7 Abandoned
 )
 assert len(ROW_FRAME_FNS) == ROWS, "행 함수 개수가 PetState 값 개수와 다름"
 assert len(ROW_BODY_COLORS) == ROWS, "행 색상 개수가 PetState 값 개수와 다름"
 assert len(ROW_EYE_COLORS) == ROWS, "행 눈 색상 개수가 PetState 값 개수와 다름"
-
-NEEDSYOU_ROW = 5  # PetState.NeedsYou — 화남 표시는 이 행에만 그린다.
 
 
 def write_png(path, px):
@@ -297,11 +427,24 @@ def main():
         eye_color = ROW_EYE_COLORS[row]
         for col in range(COLS):
             params = dict(frame_fn(col))
+            # 오버레이/포즈 선택은 프레임 파라미터에서 꺼내 쓴다 — 행 번호를
+            # 하드코딩하면 행이 늘어날 때마다 여기도 같이 고쳐야 한다.
             mark_size = params.pop("mark_size", 0)
+            question_dy = params.pop("question_dy", None)
+            lying = params.pop("lying", False)
+
             ox, oy = col * FRAME, row * FRAME
-            draw_pet(px, ox, oy, body_color=body_color, eye_color=eye_color, **params)
-            if row == NEEDSYOU_ROW:
+            if lying:
+                draw_pet_lying(px, ox, oy, body_color=body_color,
+                               eye_color=eye_color, **params)
+            else:
+                draw_pet(px, ox, oy, body_color=body_color,
+                         eye_color=eye_color, **params)
+
+            if mark_size:
                 draw_anger_mark(px, ox, oy, mark_size)
+            if question_dy is not None:
+                draw_question_mark(px, ox, oy, question_dy)
 
     out = Path(__file__).resolve().parents[2] / "src" / "PetApp" / "assets" / "pet.png"
     write_png(out, px)

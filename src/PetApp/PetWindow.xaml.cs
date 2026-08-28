@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Windows;
 using System.Windows.Interop;
 using System.Windows.Threading;
@@ -15,7 +15,7 @@ public partial class PetWindow : Window
     // Running은 빠르게 걷는다.
     private const double IdleWanderPixelsPerTick = 1.0;
     private const double RunningPixelsPerTick = 3.0;
-    private const double NeedsYouPixelsPerTick = 3.0; // 하단 중앙으로 모이는 속도
+    private const double BlockedPixelsPerTick = 3.0;  // 하단 중앙으로 모이는 속도
 
     private const int SleepAfterTicks = Fps * 20;   // 20초간 Idle이면 잠든다
 
@@ -104,7 +104,11 @@ public partial class PetWindow : Window
         // 리셋되므로 깨어남에는 지연이 없다. 위의 전체화면 검사만은 이
         // 리턴보다 앞에 있어 잠든 동안에도 계속 돌고, 잠든 채로 전체화면
         // 앱이 뜨거나 내려가도 숨김/재표시가 정상 동작한다.
-        _idleTicks = _state == PetState.Idle ? _idleTicks + 1 : 0;
+        // Abandoned 도 잠듦 대상에 넣는다. 60초 방치 알림이 떴다는 것은 사람이
+        // 자리에 없다는 뜻이므로, 그 상태에서 12fps 렌더 루프를 계속 돌릴 이유가
+        // 없다. 누운 포즈는 정지 그림이라 멈춰도 보이는 것이 달라지지 않는다.
+        var resting = _state == PetState.Idle || _state == PetState.Abandoned;
+        _idleTicks = resting ? _idleTicks + 1 : 0;
         if (_idleTicks > SleepAfterTicks) return;
 
         var work = SystemParameters.WorkArea;
@@ -124,9 +128,13 @@ public partial class PetWindow : Window
             // 준다.
             switch (_state)
             {
-                case PetState.NeedsYou:
+                case PetState.Blocked:
+                    // 승인 대기만 화면 하단 중앙으로 모인다. 사람이 반드시 봐야
+                    // 하는 유일한 상태이기 때문이다. YourTurn 과 Abandoned 는
+                    // 제자리에 머문다 — 전자는 물음표로, 후자는 누운 실루엣으로
+                    // 이미 구분되고, 굳이 시선을 끌 만큼 급하지 않다.
                     var center = work.Left + work.Width / 2 - Width / 2;
-                    _x += Math.Sign(center - _x) * NeedsYouPixelsPerTick * RepositionPixelMultiplier;
+                    _x += Math.Sign(center - _x) * BlockedPixelsPerTick * RepositionPixelMultiplier;
                     break;
                 case PetState.Idle:
                     Bounce(work, IdleWanderPixelsPerTick * RepositionPixelMultiplier);

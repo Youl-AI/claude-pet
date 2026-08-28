@@ -14,7 +14,7 @@ internal sealed class SpriteSheet
 {
     public const int FrameSize = 32;
     public const int Columns = 8;
-    private const int Rows = 6; // pet.png 실제 행 수 (256x192 / 32 = 8x6), PetState 값 개수와 일치
+    private const int Rows = 8; // pet.png 실제 행 수 (256x256 / 32 = 8x8), PetState 값 개수와 일치
 
     private readonly CroppedBitmap[,] _frames;
 

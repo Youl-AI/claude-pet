@@ -1,4 +1,4 @@
-using PetCore;
+﻿using PetCore;
 using Xunit;
 
 public class PetStateMachineTests
@@ -48,7 +48,7 @@ public class PetStateMachineTests
         machine.Apply(new TranscriptEvent(TranscriptEventKind.ToolResult));
         machine.Apply(new TranscriptEvent(TranscriptEventKind.AssistantText));
 
-        Assert.Equal(PetState.NeedsYou, machine.Current);
+        Assert.Equal(PetState.YourTurn, machine.Current);
         Assert.Equal(NeedsYouLevel.YourTurn, machine.NeedsYou);
     }
 
@@ -70,7 +70,7 @@ public class PetStateMachineTests
         var machine = new PetStateMachine();
         machine.ApplyNotification("permission_prompt");
 
-        Assert.Equal(PetState.NeedsYou, machine.Current);
+        Assert.Equal(PetState.Blocked, machine.Current);
         Assert.Equal(NeedsYouLevel.Blocked, machine.NeedsYou);
     }
 
@@ -80,6 +80,7 @@ public class PetStateMachineTests
         var machine = new PetStateMachine();
         machine.ApplyNotification("idle_prompt");
         Assert.Equal(NeedsYouLevel.Abandoned, machine.NeedsYou);
+        Assert.Equal(PetState.Abandoned, machine.Current);
     }
 
     [Fact]
@@ -93,7 +94,6 @@ public class PetStateMachineTests
         machine.Apply(new TranscriptEvent(TranscriptEventKind.ToolResult));
 
         Assert.Equal(NeedsYouLevel.None, machine.NeedsYou);
-        Assert.NotEqual(PetState.NeedsYou, machine.Current);
         Assert.Equal(PetState.Idle, machine.Current);
     }
 
@@ -149,14 +149,14 @@ public class PetStateMachineTests
     }
 
     [Fact]
-    public void Aggregate_ShowsNeedsYou_OnlyWhenEverySessionIsWaiting()
+    public void Aggregate_PrefersBlockedSession_OverAnyOtherSignal()
     {
         var a = new PetStateMachine();
         a.Apply(new TranscriptEvent(TranscriptEventKind.AssistantText));
         var b = new PetStateMachine();
         b.ApplyNotification("permission_prompt");
 
-        Assert.Equal(PetState.NeedsYou, PetStateMachine.Aggregate(new[] { a, b }));
+        Assert.Equal(PetState.Blocked, PetStateMachine.Aggregate(new[] { a, b }));
     }
 
     [Fact]
@@ -180,20 +180,96 @@ public class PetStateMachineTests
     }
 
     [Fact]
-    public void Aggregate_IgnoresWaitingSessionsWithHigherSequence()
+    public void Aggregate_ShowsTheMostRecentEvent_EvenIfItIsAWaitingSignal()
     {
-        // Tests that Aggregate filters out NeedsYou sessions before picking the most recent.
-        // This catches a regression where the .Where(...) filter is removed.
-        // If the filter is gone, this test fails because the newer waiting session
-        // has higher Sequence and would be returned instead of the older working one.
+        // 의도적인 동작 변경이다. 예전 Aggregate 는 대기 세션을 최신순 정렬
+        // *전에* 걸러내서, 오래된 작업 세션이 방금 막 대기 상태가 된 세션을
+        // 언제나 이겼다. 그 규칙이 "창 두 개를 열면 신호가 사라지는" 버그의
+        // 절반이었다. 이제는 가장 최근에 일어난 일이 이긴다 — 실제로 작업
+        // 중인 세션은 이벤트를 계속 만들어 내므로 자연히 Sequence 가 높다.
         var busySession = new PetStateMachine();
-        busySession.Apply(Tool("Write"));  // Applied first → lower Sequence
+        busySession.Apply(Tool("Write"));                                            // 먼저 → Sequence 낮음
 
         var waitingSession = new PetStateMachine();
-        waitingSession.Apply(new TranscriptEvent(TranscriptEventKind.AssistantText));  // Applied second → higher Sequence, state is NeedsYou
+        waitingSession.Apply(new TranscriptEvent(TranscriptEventKind.AssistantText)); // 나중 → Sequence 높음
 
-        Assert.Equal(PetState.Writing,
+        Assert.Equal(PetState.YourTurn,
             PetStateMachine.Aggregate(new[] { busySession, waitingSession }));
+    }
+
+    [Fact]
+    public void Aggregate_StillDefersToASessionThatIsActuallyWorking()
+    {
+        // 반대 방향도 지킨다. 설계서 §8 의 원래 의도("일하는 세션이 있으면
+        // 그쪽을 보여준다")는 그대로 살아 있다 — 작업이 더 최근이면 이긴다.
+        var waitingSession = new PetStateMachine();
+        waitingSession.Apply(new TranscriptEvent(TranscriptEventKind.AssistantText)); // 먼저
+
+        var busySession = new PetStateMachine();
+        busySession.Apply(Tool("Bash"));                                              // 나중
+
+        Assert.Equal(PetState.Running,
+            PetStateMachine.Aggregate(new[] { waitingSession, busySession }));
+    }
+
+    [Fact]
+    public void Aggregate_IgnoresSessionsThatHaveDoneNothing()
+    {
+        // 이것이 "창 두 개" 버그의 나머지 절반이었다. 열어만 두고 아무것도 하지
+        // 않은 창은 Current=Idle, Sequence=0 인데, 예전 로직은 그것을 "일하는
+        // 세션"으로 세어 다른 창의 신호를 통째로 덮었다.
+        var justOpened = new PetStateMachine();          // 이벤트 0개
+        var turnEnded = new PetStateMachine();
+        turnEnded.Apply(new TranscriptEvent(TranscriptEventKind.AssistantText));
+
+        Assert.Equal(PetState.YourTurn,
+            PetStateMachine.Aggregate(new[] { justOpened, turnEnded }));
+    }
+
+    [Fact]
+    public void Aggregate_IgnoresSessionsThatHaveDoneNothing_EvenWhenAnotherIsBlocked()
+    {
+        // 가장 나빴던 경우: 승인을 기다리며 멈춰 있는데 빈 창 하나가 그것을 가렸다.
+        var justOpened = new PetStateMachine();
+        var blocked = new PetStateMachine();
+        blocked.ApplyNotification("permission_prompt");
+
+        Assert.Equal(PetState.Blocked,
+            PetStateMachine.Aggregate(new[] { justOpened, blocked }));
+    }
+
+    [Fact]
+    public void Aggregate_DoesNotLetAFrozenSessionMaskALiveWaitingSession()
+    {
+        // 크래시로 Reading 상태에 얼어붙은 세션이 남아 있어도, 그보다 나중에
+        // 일어난 신호가 이겨야 한다.
+        var frozen = new PetStateMachine();
+        frozen.Apply(Tool("Read"));                                                  // 먼저
+
+        var live = new PetStateMachine();
+        live.Apply(new TranscriptEvent(TranscriptEventKind.AssistantText));          // 나중
+
+        Assert.Equal(PetState.YourTurn,
+            PetStateMachine.Aggregate(new[] { frozen, live }));
+    }
+
+    [Fact]
+    public void Aggregate_ReturnsIdle_WhenEverySessionIsJustOpen()
+    {
+        Assert.Equal(PetState.Idle,
+            PetStateMachine.Aggregate(new[] { new PetStateMachine(), new PetStateMachine() }));
+    }
+
+    [Fact]
+    public void Escalation_IsOneWay_LowerLevelDoesNotWeakenTheSignal()
+    {
+        // 승인 대기 중에 턴 종료 이벤트가 하나 더 들어와도 신호가 약해지면 안 된다.
+        var machine = new PetStateMachine();
+        machine.ApplyNotification("permission_prompt");
+        machine.Apply(new TranscriptEvent(TranscriptEventKind.AssistantText));
+
+        Assert.Equal(NeedsYouLevel.Blocked, machine.NeedsYou);
+        Assert.Equal(PetState.Blocked, machine.Current);
     }
 
     [Fact]
