@@ -21,6 +21,7 @@
 - `PetCore`는 `net10.0`이고 Windows 전용 API를 참조하지 않는다. 기존 파일들이 그렇게 되어 있다.
 - 커밋 메시지는 영어로 쓴다. 기존 이력과 맞춘다.
 - 새 파일의 주석은 한국어로 쓴다. 기존 파일들이 그렇게 되어 있다.
+- **`plugin/bin/` 을 커밋하지 않는다.** 그 안의 `pet.exe` 는 git 추적 대상이지만 배포 바이너리이고, 모든 태스크가 끝난 뒤 한 번만 다시 만든다. 검증용 빌드는 `/tmp/pet-verify` 로 낸다.
 
 **정본 상수 (스펙 §4.1)**
 
@@ -1847,10 +1848,10 @@ Expected: `빌드했습니다.` — 경고 0, 오류 0
 cd "c:/Users/hayoul1999.YOUL-HOUSE/Desktop/github/claude-pet"
 dotnet publish src/PetApp/PetApp.csproj -c Release -r win-x64 \
   -p:SelfContained=false -p:PublishSingleFile=true \
-  -p:DebugType=none -p:DebugSymbols=false -o plugin/bin
+  -p:DebugType=none -p:DebugSymbols=false -o /tmp/pet-verify
 ```
 
-그다음 펫을 띄우고 명패가 보이는지 확인한다. 세션 파일이 없으면 워치독이 10초 뒤 닫으므로,
+그다음 `/tmp/pet-verify/pet.exe` 를 띄우고 명패가 보이는지 확인한다. plugin/bin 은 건드리지 않는다. 세션 파일이 없으면 워치독이 10초 뒤 닫으므로,
 살아 있는 프로세스를 가리키는 세션 레코드를 먼저 넣는다.
 
 Expected: 화면 하단에 펫이 서 있고 그 **왼쪽**에 검은 판 + 흰 숫자가 보인다. 판과 펫 사이가
@@ -1926,10 +1927,10 @@ Expected: 빌드 경고 0 · 오류 0, 테스트 `통과!` 실패 0 · 통과 13
 cd "c:/Users/hayoul1999.YOUL-HOUSE/Desktop/github/claude-pet"
 dotnet publish src/PetApp/PetApp.csproj -c Release -r win-x64 \
   -p:SelfContained=false -p:PublishSingleFile=true \
-  -p:DebugType=none -p:DebugSymbols=false -o plugin/bin
+  -p:DebugType=none -p:DebugSymbols=false -o /tmp/pet-verify
 ```
 
-펫을 띄운 뒤 상태 파일을 확인한다:
+`/tmp/pet-verify/pet.exe` 를 띄운 뒤 상태 파일을 확인한다:
 
 ```bash
 cat ~/.claude/plugins/data/claude-pet-claude-pet-local/usage.json | python -m json.tool | head -20
