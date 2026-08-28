@@ -1,0 +1,41 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "shell": "powershell",
+            "async": true,
+            "command": "& '${CLAUDE_PLUGIN_ROOT}/hooks/session_start.ps1'"
+          }
+        ]
+      }
+    ],
+    "Notification": [
+      {
+        "matcher": "permission_prompt|idle_prompt",
+        "hooks": [
+          {
+            "type": "command",
+            "shell": "powershell",
+            "async": true,
+            "command": "& '${CLAUDE_PLUGIN_ROOT}/hooks/notification.ps1'"
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "shell": "powershell",
+            "async": true,
+            "command": "& '${CLAUDE_PLUGIN_ROOT}/hooks/session_end.ps1'"
+          }
+        ]
+      }
+    ]
+  }
+}

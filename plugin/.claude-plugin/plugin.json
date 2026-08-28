@@ -1,0 +1,5 @@
+{
+  "name": "claude-pet",
+  "version": "0.1.0",
+  "description": "Desktop pet that reacts to Claude Code activity without interfering with it"
+}
