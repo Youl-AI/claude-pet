@@ -16,7 +16,11 @@ public static class TranscriptParser
         using (doc)
         {
             var root = doc.RootElement;
+            if (root.ValueKind != JsonValueKind.Object)
+                return Array.Empty<TranscriptEvent>();
             if (!root.TryGetProperty("message", out var message))
+                return Array.Empty<TranscriptEvent>();
+            if (message.ValueKind != JsonValueKind.Object)
                 return Array.Empty<TranscriptEvent>();
             if (!message.TryGetProperty("content", out var content))
                 return Array.Empty<TranscriptEvent>();
@@ -30,13 +34,19 @@ public static class TranscriptParser
             var results = new List<TranscriptEvent>();
             foreach (var item in content.EnumerateArray())
             {
+                if (item.ValueKind != JsonValueKind.Object)
+                    continue;
                 if (!item.TryGetProperty("type", out var typeProp))
+                    continue;
+                if (typeProp.ValueKind != JsonValueKind.String)
                     continue;
 
                 switch (typeProp.GetString())
                 {
                     case "tool_use":
-                        var name = item.TryGetProperty("name", out var n) ? n.GetString() : null;
+                        var name = item.TryGetProperty("name", out var n) && n.ValueKind == JsonValueKind.String
+                            ? n.GetString()
+                            : null;
                         results.Add(new TranscriptEvent(TranscriptEventKind.ToolUse, name));
                         break;
 

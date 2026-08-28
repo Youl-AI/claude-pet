@@ -49,4 +49,61 @@ public class TranscriptParserTests
     {
         Assert.Empty(TranscriptParser.ParseLine(line));
     }
+
+    [Theory]
+    [InlineData("42")]
+    [InlineData("null")]
+    [InlineData("[1,2,3]")]
+    [InlineData("\"x\"")]
+    [InlineData("true")]
+    public void ReturnsEmpty_WhenRootIsNotAnObject(string line)
+    {
+        Assert.Empty(TranscriptParser.ParseLine(line));
+    }
+
+    [Theory]
+    [InlineData("""{"message":"hi"}""")]
+    [InlineData("""{"message":null}""")]
+    public void ReturnsEmpty_WhenMessageIsNotAnObject(string line)
+    {
+        Assert.Empty(TranscriptParser.ParseLine(line));
+    }
+
+    [Theory]
+    [InlineData("""{"message":{"content":[1,2,3]}}""")]
+    [InlineData("""{"message":{"content":[null]}}""")]
+    public void ReturnsEmpty_WhenContentArrayItemsAreNotObjects(string line)
+    {
+        Assert.Empty(TranscriptParser.ParseLine(line));
+    }
+
+    [Fact]
+    public void ReturnsEmpty_WhenItemTypeIsNotAString()
+    {
+        var line = """{"message":{"content":[{"type":123}]}}""";
+
+        Assert.Empty(TranscriptParser.ParseLine(line));
+    }
+
+    [Fact]
+    public void SkipsBadItems_ButStillReturnsGoodItemFromSameContentArray()
+    {
+        var line = """
+        {"message":{"content":[{"type":123},{"type":"tool_use","id":"t1","name":"Read","input":{}}]}}
+        """;
+
+        var e = Assert.Single(TranscriptParser.ParseLine(line));
+        Assert.Equal(TranscriptEventKind.ToolUse, e.Kind);
+        Assert.Equal("Read", e.ToolName);
+    }
+
+    [Fact]
+    public void ToolUse_WithNonStringName_DoesNotThrow_AndYieldsNullToolName()
+    {
+        var line = """{"message":{"content":[{"type":"tool_use","name":123}]}}""";
+
+        var e = Assert.Single(TranscriptParser.ParseLine(line));
+        Assert.Equal(TranscriptEventKind.ToolUse, e.Kind);
+        Assert.Null(e.ToolName);
+    }
 }
