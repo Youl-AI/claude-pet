@@ -57,6 +57,15 @@ public class WatchdogTests
 
         var justAfterOriginalGrace = T0 + Grace + TimeSpan.FromSeconds(1);
         Assert.False(watchdog.ShouldExit(new[] { Session(1) }, justAfterOriginalGrace));
+
+        // Verify the grace window correctly restarts when the session comes back and dies again.
+        // Without this check, a buggy implementation that re-anchors _emptySince (sets _emptySince = now
+        // instead of _emptySince = null on the alive branch) would cause premature exit around
+        // T0+5s+Grace+1s=T0+16s. The correct implementation (clearing to null) sets _emptySince=T0+11s
+        // on the next check, so it should stay alive until T0+11s+Grace+1s=T0+22s.
+        var revivalDeathTime = T0 + TimeSpan.FromSeconds(5);
+        var incorrectPrematureDeadline = revivalDeathTime + Grace + TimeSpan.FromSeconds(1);
+        Assert.False(watchdog.ShouldExit(new[] { Session(1) }, incorrectPrematureDeadline));
     }
 
     [Fact]
