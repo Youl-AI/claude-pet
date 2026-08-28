@@ -632,7 +632,7 @@ public class TranscriptCostScannerTests : IDisposable
     }
 
     private static string Line(string id, string model, long output) =>
-        $$"""{"message":{"id":"{{id}}","model":"{{model}}","usage":{"input_tokens":0,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":{{output}}}}}""";
+        $$$$"""{"message":{"id":"{{{{id}}}}","model":"{{{{model}}}}","usage":{"input_tokens":0,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":{{{{output}}}}}}}""";
 
     [Fact]
     public void SumsCostAcrossDistinctMessages()
@@ -1065,7 +1065,7 @@ public class UsageTrackerTests : IDisposable
     private string ProjectsRoot => Path.Combine(_root, "projects");
 
     private static string Line(string id, long output) =>
-        $$"""{"message":{"id":"{{id}}","model":"claude-opus-5","usage":{"output_tokens":{{output}}}}}""";
+        $$$$"""{"message":{"id":"{{{{id}}}}","model":"claude-opus-5","usage":{"output_tokens":{{{{output}}}}}}}""";
 
     private string WriteTranscript(string project, string name, params string[] lines)
     {
