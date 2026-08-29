@@ -8,24 +8,24 @@
         ShowInTaskbar="False"
         ShowActivated="False"
         ResizeMode="NoResize"
-        Width="112" Height="64">
-    <!-- 창이 64 에서 112 로 넓어졌다. 오른쪽 64x64 가 펫이고, 왼쪽 48px 이 명패 자리다.
-         48 은 필요한 최소치에서 올림한 값이다: 4자리 명패 19px x2 = 38, 간격 6px x2 = 12,
-         몸의 왼쪽 여백 4px x2 = 8 -> 38 + 12 - 8 = 42.
+        Width="116" Height="64">
+    <!-- 창이 64 에서 116 으로 넓어졌다. 오른쪽 64x64 가 펫이고, 왼쪽 52px 이 레벨 표기 자리다.
+         52 는 필요한 최소치다: 4자리 "Lv9999" 표기 28px x2 = 56, 간격 1px x2 = 2,
+         몸의 왼쪽 여백 4px x2 = 8 -> 56 + 2 - 8 = 50, 짝수 올림으로 52.
          창이 넓어지면 Bounce/clamp 가 쓰는 Width 도 커진다. 펫은 오른쪽 끝까지는 그대로
-         가지만(창 안에서 오른쪽에 붙어 있으므로), 왼쪽으로는 48px 못 간다 - 그 자리가
-         명패이기 때문이고, 명패가 화면 밖으로 나가지 않게 하려면 필요한 동작이다. -->
+         가지만(창 안에서 오른쪽에 붙어 있으므로), 왼쪽으로는 52px 못 간다 - 그 자리가
+         레벨 표기이기 때문이고, 표기가 화면 밖으로 나가지 않게 하려면 필요한 동작이다. -->
     <Canvas>
         <Image x:Name="Plate"
                RenderOptions.BitmapScalingMode="NearestNeighbor"
                SnapsToDevicePixels="True" />
         <Image x:Name="Sprite"
-               Canvas.Left="48" Width="64" Height="64"
+               Canvas.Left="52" Width="64" Height="64"
                RenderOptions.BitmapScalingMode="NearestNeighbor"
                SnapsToDevicePixels="True" />
         <!-- 이펙트는 상태 스프라이트 위에 얹힌다. 상태 애니메이션과 별개의 타임라인이다. -->
         <Image x:Name="Flash"
-               Canvas.Left="48" Width="64" Height="64"
+               Canvas.Left="52" Width="64" Height="64"
                Visibility="Collapsed"
                RenderOptions.BitmapScalingMode="NearestNeighbor"
                SnapsToDevicePixels="True" />
