@@ -16,11 +16,16 @@ public class SessionRegistryTests : IDisposable
     private void WriteSession(string id, string json) =>
         File.WriteAllText(Path.Combine(_dir, $"{id}.json"), json);
 
+    // TTL 스윕(orphan 정리) 대상이 되지 않도록, TTL과 무관한 테스트는 이 "지금"에
+    // 가까운 touchedUnixMs를 쓴다. 7일 TTL을 다투는 테스트만 별도로 고정된
+    // now/touched 쌍을 쓴다.
+    private static readonly long FreshTouched = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+
     [Fact]
     public void ReadAll_ParsesWellFormedRecords()
     {
-        WriteSession("abc", """
-        {"sessionId":"abc","transcriptPath":"C:\\t\\abc.jsonl","pid":1234,"pidStartUnixMs":111,"touchedUnixMs":222}
+        WriteSession("abc", $$"""
+        {"sessionId":"abc","transcriptPath":"C:\\t\\abc.jsonl","pid":1234,"pidStartUnixMs":111,"touchedUnixMs":{{FreshTouched}}}
         """);
 
         var r = Assert.Single(new SessionRegistry(_dir).ReadAll());
@@ -32,8 +37,8 @@ public class SessionRegistryTests : IDisposable
     [Fact]
     public void ReadAll_SkipsCorruptFilesInsteadOfThrowing()
     {
-        WriteSession("good", """
-        {"sessionId":"good","transcriptPath":"p","pid":1,"pidStartUnixMs":0,"touchedUnixMs":0}
+        WriteSession("good", $$"""
+        {"sessionId":"good","transcriptPath":"p","pid":1,"pidStartUnixMs":0,"touchedUnixMs":{{FreshTouched}}}
         """);
         WriteSession("bad", "{ this is not json");
 
@@ -117,11 +122,11 @@ public class SessionRegistryTests : IDisposable
     [Fact]
     public void ReadAll_SkipsRecord_WhenTranscriptPathIsMissing()
     {
-        WriteSession("good", """
-        {"sessionId":"good","transcriptPath":"p","pid":1,"pidStartUnixMs":0,"touchedUnixMs":0}
+        WriteSession("good", $$"""
+        {"sessionId":"good","transcriptPath":"p","pid":1,"pidStartUnixMs":0,"touchedUnixMs":{{FreshTouched}}}
         """);
-        WriteSession("no-transcript", """
-        {"sessionId":"no-transcript","pid":1,"pidStartUnixMs":0,"touchedUnixMs":0}
+        WriteSession("no-transcript", $$"""
+        {"sessionId":"no-transcript","pid":1,"pidStartUnixMs":0,"touchedUnixMs":{{FreshTouched}}}
         """);
 
         var records = new SessionRegistry(_dir).ReadAll();
@@ -133,16 +138,83 @@ public class SessionRegistryTests : IDisposable
     [Fact]
     public void ReadAll_SkipsRecord_WhenSessionIdIsMissing()
     {
-        WriteSession("good2", """
-        {"sessionId":"good2","transcriptPath":"p","pid":1,"pidStartUnixMs":0,"touchedUnixMs":0}
+        WriteSession("good2", $$"""
+        {"sessionId":"good2","transcriptPath":"p","pid":1,"pidStartUnixMs":0,"touchedUnixMs":{{FreshTouched}}}
         """);
-        WriteSession("no-session-id", """
-        {"transcriptPath":"p","pid":1,"pidStartUnixMs":0,"touchedUnixMs":0}
+        WriteSession("no-session-id", $$"""
+        {"transcriptPath":"p","pid":1,"pidStartUnixMs":0,"touchedUnixMs":{{FreshTouched}}}
         """);
 
         var records = new SessionRegistry(_dir).ReadAll();
 
         Assert.Single(records);
         Assert.Equal("good2", records[0].SessionId);
+    }
+
+    // SessionEnd 훅은 강제 종료(크래시, kill)에서는 안 불린다 — 그런 세션의 레코드는
+    // 영영 지워지지 않고 매초 ReadAll에 계속 남는다. ReadAll이 매초 도는 유일한
+    // 청소부이므로, 여기서 TTL을 넘긴 orphan을 직접 지운다.
+
+    private const long DayMs = 24L * 60 * 60 * 1000;
+
+    [Fact]
+    public void ReadAll_DeletesOrphanedRecord_WhenTouchedUnixMsIsOlderThan7Days()
+    {
+        var now = 1_000_000_000_000L;
+        var touched = now - 8 * DayMs;
+        var path = Path.Combine(_dir, "orphan.json");
+        WriteSession("orphan", $$"""
+        {"sessionId":"orphan","transcriptPath":"p","pid":1,"pidStartUnixMs":0,"touchedUnixMs":{{touched}}}
+        """);
+
+        var records = new SessionRegistry(_dir).ReadAll(now);
+
+        Assert.Empty(records);
+        Assert.False(File.Exists(path));
+    }
+
+    [Fact]
+    public void ReadAll_KeepsRecord_WhenTouchedUnixMsIsWithin7Days()
+    {
+        var now = 1_000_000_000_000L;
+        var touched = now - 60L * 60 * 1000; // 1시간 전
+        var path = Path.Combine(_dir, "fresh.json");
+        WriteSession("fresh", $$"""
+        {"sessionId":"fresh","transcriptPath":"p","pid":1,"pidStartUnixMs":0,"touchedUnixMs":{{touched}}}
+        """);
+
+        var records = new SessionRegistry(_dir).ReadAll(now);
+
+        Assert.Single(records);
+        Assert.Equal("fresh", records[0].SessionId);
+        Assert.True(File.Exists(path));
+    }
+
+    [Fact]
+    public void ReadAll_DeletesCorruptFile_WhenMtimeIsOlderThan7Days()
+    {
+        var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        var path = Path.Combine(_dir, "corrupt-old.json");
+        WriteSession("corrupt-old", "{ this is not json");
+        File.SetLastWriteTimeUtc(path, DateTimeOffset.FromUnixTimeMilliseconds(now - 8 * DayMs).UtcDateTime);
+
+        var records = new SessionRegistry(_dir).ReadAll(now);
+
+        Assert.Empty(records);
+        Assert.False(File.Exists(path));
+    }
+
+    [Fact]
+    public void ReadAll_KeepsCorruptFile_WhenMtimeIsFresh()
+    {
+        var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        var path = Path.Combine(_dir, "corrupt-fresh.json");
+        WriteSession("corrupt-fresh", "{ this is not json");
+        // 방금 쓴 파일이라 mtime은 이미 신선하다 — 별도 설정 불필요.
+
+        var records = new SessionRegistry(_dir).ReadAll(now);
+
+        Assert.Empty(records);
+        Assert.True(File.Exists(path));
     }
 }

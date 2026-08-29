@@ -7,12 +7,19 @@ public sealed class SessionRegistry
     private static readonly JsonSerializerOptions Options =
         new() { PropertyNameCaseInsensitive = true };
 
+    // SessionEnd 훅은 강제 종료(크래시, taskkill)에서는 호출되지 않는다 — 그런 세션의
+    // 레코드는 아무도 지우지 않으면 sessions/*.json 아래에 영원히 남아 매초 ReadAll이
+    // 역직렬화한다. ReadAll이 1Hz로 도는 유일한 청소부이므로, 여기서 직접 orphan을
+    // 정리한다.
+    private const long OrphanTtlMs = 7L * 24 * 60 * 60 * 1000;
+
     private readonly string _directory;
 
     public SessionRegistry(string directory) => _directory = directory;
 
-    public IReadOnlyList<SessionRecord> ReadAll()
+    public IReadOnlyList<SessionRecord> ReadAll(long? nowUnixMs = null)
     {
+        var now = nowUnixMs ?? DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
         var records = new List<SessionRecord>();
 
         // ReadAll()의 계약은 "절대 던지지 않는다"이다. 이 디렉터리는 여러 PowerShell
@@ -42,13 +49,27 @@ public sealed class SessionRegistry
                         && !string.IsNullOrEmpty(record.SessionId)
                         && !string.IsNullOrEmpty(record.TranscriptPath))
                     {
-                        records.Add(record);
+                        // TouchedUnixMs가 TTL을 넘겼으면 orphan이다 — 결과에 넣지 않고
+                        // 파일도 지운다. SessionEnd가 안 불린 크래시 세션이 sessions/
+                        // 아래에 영원히 쌓이는 것을 막는 유일한 지점이다.
+                        if (now - record.TouchedUnixMs > OrphanTtlMs)
+                        {
+                            TryDelete(file);
+                        }
+                        else
+                        {
+                            records.Add(record);
+                        }
                     }
                 }
                 catch
                 {
                     // 개별 파일 하나가 손상되었거나, 훅이 쓰는 중이거나, 그 사이에
                     // 지워졌을 수 있다. 그 파일만 건너뛰고 나머지는 계속 읽는다.
+                    // 다만 손상된 채로 mtime이 TTL을 넘겼다면 — 아무도 다시 쓰지 않을
+                    // 죽은 파일이라는 뜻이다 — 역시 지운다. 파싱할 수 없는 레코드가
+                    // 영원히 남아 있을 이유는 없다.
+                    TryDeleteIfStale(file, now);
                 }
             }
         }
@@ -59,5 +80,36 @@ public sealed class SessionRegistry
         }
 
         return records;
+    }
+
+    // 삭제 실패는 무시한다 — 다음 폴링에서 다시 시도한다. 청소는 부가 동작이지
+    // ReadAll의 "절대 던지지 않는다" 계약을 깰 이유가 못 된다.
+    private static void TryDelete(string file)
+    {
+        try
+        {
+            File.Delete(file);
+        }
+        catch (Exception)
+        {
+        }
+    }
+
+    // 파싱에 실패한 파일은 mtime으로만 나이를 판단할 수 있다. 신선하면(예: 훅이
+    // 아직 다 쓰는 중) 건드리지 않고 다음 폴링에서 다시 읽어본다.
+    private static void TryDeleteIfStale(string file, long now)
+    {
+        try
+        {
+            var mtime = File.GetLastWriteTimeUtc(file);
+            var mtimeUnixMs = new DateTimeOffset(mtime, TimeSpan.Zero).ToUnixTimeMilliseconds();
+            if (now - mtimeUnixMs > OrphanTtlMs)
+            {
+                File.Delete(file);
+            }
+        }
+        catch (Exception)
+        {
+        }
     }
 }
