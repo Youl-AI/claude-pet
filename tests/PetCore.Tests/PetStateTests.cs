@@ -4,11 +4,11 @@ using Xunit;
 public class PetStateTests
 {
     [Fact]
-    public void PetState_HasAllEightStates()
+    public void PetState_HasAllNineStates()
     {
         // 스프라이트 시트는 상태당 한 행이고 SpriteSheet 생성자가 이 개수와
         // 행 수가 어긋나면 던진다. 상태를 추가하면 pet.png 도 함께 갱신해야 한다.
-        Assert.Equal(8, Enum.GetValues<PetState>().Length);
+        Assert.Equal(9, Enum.GetValues<PetState>().Length);
     }
 
     [Fact]
