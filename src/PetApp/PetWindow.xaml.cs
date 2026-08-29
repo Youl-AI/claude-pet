@@ -38,6 +38,7 @@ public partial class PetWindow : Window
 
     private int _frame;
     private int _idleTicks;
+    private PetState _lastTickState = PetState.Idle;
     private double _x;
     private int _direction = 1;
     private PetState _state = PetState.Idle;
@@ -120,15 +121,20 @@ public partial class PetWindow : Window
 
         // 잠들었는지 여부는 Left/Top/Sprite.Source를 조금이라도 건드리기
         // 전에 확정한다 — 그래야 잠든 펫은 위치 계산도, 창 재배치도, 스프라
-        // 이트 갱신도 전혀 하지 않는다(레이어드 윈도우 재합성 0회). 상태가
-        // Idle이 아닌 다른 값으로 바뀌면 이 카운터가 같은 틱에서 즉시 0으로
-        // 리셋되므로 깨어남에는 지연이 없다. 위의 전체화면 검사만은 이
-        // 리턴보다 앞에 있어 잠든 동안에도 계속 돌고, 잠든 채로 전체화면
-        // 앱이 뜨거나 내려가도 숨김/재표시가 정상 동작한다.
+        // 이트 갱신도 전혀 하지 않는다(레이어드 윈도우 재합성 0회). resting
+        // 집합을 벗어나는 상태로 바뀌면(예: Idle→Running) 이 카운터가 같은
+        // 틱에서 즉시 0으로 리셋되므로 깨어남에는 지연이 없다. 위의 전체화면
+        // 검사만은 이 리턴보다 앞에 있어 잠든 동안에도 계속 돌고, 잠든 채로
+        // 전체화면 앱이 뜨거나 내려가도 숨김/재표시가 정상 동작한다.
         // Abandoned 도 잠듦 대상에 넣는다. 60초 방치 알림이 떴다는 것은 사람이
         // 자리에 없다는 뜻이므로, 그 상태에서 12fps 렌더 루프를 계속 돌릴 이유가
         // 없다. 누운 포즈는 정지 그림이라 멈춰도 보이는 것이 달라지지 않는다.
         var resting = _state is PetState.Idle or PetState.Abandoned or PetState.Sleeping;
+        // 절전 카운터는 "같은 상태가 이어진 틱 수"여야 한다. resting 집합 안에서
+        // 상태가 바뀌는 전이(Idle→Sleeping, Sleeping→Idle 등)에서 리셋하지 않으면
+        // 프레임 갱신이 멎은 채 이전 포즈가 그대로 남는다 — 낮잠이 한 번도
+        // 그려지지 않거나, 리셋 후에도 계속 누워 있는 버그가 실제로 그랬다.
+        if (_state != _lastTickState) { _idleTicks = 0; _lastTickState = _state; }
         _idleTicks = resting ? _idleTicks + 1 : 0;
         if (_idleTicks > SleepAfterTicks) return;
 
