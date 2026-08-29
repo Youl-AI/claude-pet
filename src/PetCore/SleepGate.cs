@@ -8,6 +8,11 @@ namespace PetCore;
 /// ② 리셋 시각 경과(IsSleeping의 검사), ③ 새로운 도구 활동 관측(Observe).
 /// AssistantText 는 깨우지 않는다 — 한도 도달 줄 자체가 assistant 형태라
 /// 오탐 여지를 남기지 않기 위해서다.
+///
+/// 트랜스크립트 truncation 뒤 재생되는(예전) 한도 도달 줄도 리셋 시각을 항상
+/// 파싱 시점의 "지금"을 기준으로 계산하므로 절대 낡은 값이 되지 않는다 —
+/// 그래서 재생 배치 안에서 더 나중에 오는 실제 새 활동(위 기상 경로 ③)이
+/// 재생으로 인한 유령 낮잠을 막는 실질적 방어선이다.
 /// </summary>
 public sealed class SleepGate
 {
@@ -16,6 +21,9 @@ public sealed class SleepGate
     public bool Sleeping { get; private set; }
 
     /// <summary>트랜스크립트 이벤트를 관찰한다. 어느 세션의 것이든 상관없다.</summary>
+    /// <param name="nowUnixMs">현재는 사용하지 않는다 — 인터페이스 안정성을 위해
+    /// 남겨 둔 자리다(다음에 시각 기반 판정이 필요해질 때 시그니처를 또 바꾸지
+    /// 않기 위함).</param>
     public void Observe(TranscriptEvent e, long nowUnixMs)
     {
         switch (e.Kind)

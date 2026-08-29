@@ -6,7 +6,7 @@ using PetCore;
 namespace PetApp;
 
 /// <summary>
-/// 32x32 프레임 8개 x 6행. 행 순서는 PetState enum 순서와 일치한다.
+/// 32x32 프레임 8개 x 9행. 행 순서는 PetState enum 순서와 일치한다.
 /// 모든 크롭은 생성자에서 한 번만 만들어 캐시한다 — 12fps로 하루 종일 도는
 /// 렌더 루프에서 매 틱마다 CroppedBitmap을 새로 할당하지 않기 위해서다.
 /// </summary>
