@@ -42,6 +42,9 @@ internal sealed class PetHost
     // 되돌리는 쪽)가 같이 건드리므로 volatile 로 가시성을 보장한다.
     private volatile bool _levelRefreshInFlight;
 
+    // 콜드 스캔 후 1회만 힘 압축/트림을 수행했는지. 백그라운드 태스크에서만 쓴다.
+    private bool _trimmedAfterColdScan;
+
     private readonly PetWindow _window;
     private readonly string _dataDir;
     private readonly SessionRegistry _registry;
@@ -166,6 +169,19 @@ internal sealed class PetHost
                 {
                     var snapshot = _usage.Refresh();
                     _window.SetLevel(snapshot.Level, snapshot.LeveledUp);
+
+                    // 첫(콜드) 스캔은 수백 파일을 훑으며 힙을 일시적으로 크게 부풀린다.
+                    // 스캔이 끝난 지금이 그 흔적을 정리할 유일하게 좋은 순간이다:
+                    // LOH 를 한 번 압축해 세그먼트를 OS 에 돌려주고, 워킹셋을 반환한다.
+                    // 이후의 warm 스캔(16ms 급)은 힙을 부풀리지 않으므로 반복하지 않는다.
+                    if (!_trimmedAfterColdScan)
+                    {
+                        _trimmedAfterColdScan = true;
+                        System.Runtime.GCSettings.LargeObjectHeapCompactionMode =
+                            System.Runtime.GCLargeObjectHeapCompactionMode.CompactOnce;
+                        GC.Collect(2, GCCollectionMode.Aggressive, blocking: true, compacting: true);
+                        NativeMethods.TrimWorkingSet();
+                    }
                 }
                 catch (Exception)
                 {

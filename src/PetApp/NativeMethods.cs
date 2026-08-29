@@ -119,5 +119,25 @@ internal static class NativeMethods
         }
     }
 
+    /// <summary>
+    /// 워킹셋을 OS 에 반환한다. 콜드 스캔이 끝난 직후 한 번만 부른다 — 스캔이
+    /// 일시적으로 끌어올린 페이지를 돌려줘서 작업 관리자 수치가 실사용을
+    /// 반영하게 한다. 자주 부르면 페이지 폴트만 늘어나므로 반복 호출하지 않는다.
+    /// 실패해도 아무 일도 하지 않는다 — 장식일 뿐 기능이 아니다.
+    /// </summary>
+    public static void TrimWorkingSet()
+    {
+        try
+        {
+            EmptyWorkingSet(System.Diagnostics.Process.GetCurrentProcess().Handle);
+        }
+        catch (Exception)
+        {
+        }
+    }
+
+    [DllImport("psapi.dll")]
+    private static extern bool EmptyWorkingSet(IntPtr process);
+
     private static PixelRect ToPixelRect(RECT rect) => new(rect.Left, rect.Top, rect.Right, rect.Bottom);
 }
