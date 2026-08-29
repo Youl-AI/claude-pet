@@ -128,7 +128,7 @@ public partial class PetWindow : Window
         // Abandoned 도 잠듦 대상에 넣는다. 60초 방치 알림이 떴다는 것은 사람이
         // 자리에 없다는 뜻이므로, 그 상태에서 12fps 렌더 루프를 계속 돌릴 이유가
         // 없다. 누운 포즈는 정지 그림이라 멈춰도 보이는 것이 달라지지 않는다.
-        var resting = _state == PetState.Idle || _state == PetState.Abandoned;
+        var resting = _state is PetState.Idle or PetState.Abandoned or PetState.Sleeping;
         _idleTicks = resting ? _idleTicks + 1 : 0;
         if (_idleTicks > SleepAfterTicks) return;
 

@@ -33,6 +33,9 @@ internal sealed class PetHost
     private readonly UsageTracker _usage;
     private int _levelTickCounter;
 
+    // 토큰 한도 낮잠. 한도는 계정 전역이므로 세션별 머신이 아니라 여기 하나다 (스펙 §2).
+    private readonly SleepGate _sleep = new();
+
     // 이전 Refresh 가 아직 백그라운드에서 도는 중이면 겹쳐 돌리지 않는다. 콜드 스캔은
     // 파일 수백 개·1GB 이상을 읽을 수 있어(UsageTracker 문서 참고) 30초 안에 안 끝날
     // 수도 있다. UI 스레드(이 카운터를 읽는 쪽)와 스레드 풀 태스크(이걸 false 로
@@ -115,8 +118,13 @@ internal sealed class PetHost
             }
 
             var machine = _machines[session.SessionId];
+            var nowUnixMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
             foreach (var e in tail.ReadNew())
-                machine.Apply(e);
+            {
+                machine.Apply(e);      // RateLimited 는 머신의 switch 에 케이스가 없어
+                                       // 상태를 바꾸지 않는다 — Sequence 만 오른다.
+                _sleep.Observe(e, nowUnixMs);
+            }
         }
 
         // 사라진 세션은 정리한다. 그러지 않으면 죽은 세션의 상태가 집계에 계속 남는다.
@@ -127,7 +135,14 @@ internal sealed class PetHost
         }
 
         DrainNotifications();
-        _window.SetState(PetStateMachine.Aggregate(_machines.Values));
+
+        // 낮잠은 모든 상태를 이긴다 (스펙 §2, 사용자 결정) — 한도가 걸리면
+        // 권한을 승인해도 리셋 전에는 아무것도 진행되지 않기 때문이다.
+        var aggregate = PetStateMachine.Aggregate(_machines.Values);
+        var state = _sleep.IsSleeping(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds())
+            ? PetState.Sleeping
+            : aggregate;
+        _window.SetState(state);
 
         // 30초에 한 번만 레벨을 다시 센다. PollCore 는 DispatcherTimer.Tick 콜백이라
         // PetWindow 의 12fps 스프라이트 루프와 같은(유일한) UI 스레드에서 돈다
@@ -205,12 +220,21 @@ internal sealed class PetHost
 
                     // 알림을 해당 세션의 상태 머신으로 보낸다.
                     // 세션을 알 수 없으면 무시한다 — 엉뚱한 세션에 대기 신호를 붙이면 안 된다.
-                    if (root.TryGetProperty("notificationType", out var type)
-                        && root.TryGetProperty("sessionId", out var sid)
-                        && sid.GetString() is { } sessionId
-                        && _machines.TryGetValue(sessionId, out var machine))
+                    if (root.TryGetProperty("notificationType", out var type))
                     {
-                        machine.ApplyNotification(type.GetString() ?? "");
+                        var typeName = type.GetString() ?? "";
+
+                        if (typeName == "quota_auto_resume_fired")
+                        {
+                            // 전역 신호 — 세션 머신으로 보내지 않는다 (스펙 §3-①).
+                            _sleep.OnQuotaResumed();
+                        }
+                        else if (root.TryGetProperty("sessionId", out var sid)
+                                 && sid.GetString() is { } sessionId
+                                 && _machines.TryGetValue(sessionId, out var machine))
+                        {
+                            machine.ApplyNotification(typeName);
+                        }
                     }
                 }
 
