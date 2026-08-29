@@ -32,6 +32,7 @@ Claude Code 활동에 반응하는 Windows 데스크톱 펫. 작업표시줄 위
 - Windows 10/11
 - [.NET Desktop Runtime 10 이상](https://dotnet.microsoft.com/download/dotnet) (이후 메이저 버전도 동작)
 - Claude Code
+- 이 플러그인은 Windows 전용이며 macOS/Linux 에서는 훅이 동작하지 않습니다 (세션 진행은 막지 않습니다).
 
 ## 설치
 
