@@ -6,7 +6,7 @@ using PetCore;
 namespace PetApp;
 
 /// <summary>
-/// 32x32 프레임 8개 x 6행. 행 순서는 PetState enum 순서와 일치한다.
+/// 32x32 프레임 8개 x 9행. 행 순서는 PetState enum 순서와 일치한다.
 /// 모든 크롭은 생성자에서 한 번만 만들어 캐시한다 — 12fps로 하루 종일 도는
 /// 렌더 루프에서 매 틱마다 CroppedBitmap을 새로 할당하지 않기 위해서다.
 /// </summary>
@@ -14,7 +14,7 @@ internal sealed class SpriteSheet
 {
     public const int FrameSize = 32;
     public const int Columns = 8;
-    private const int Rows = 8; // pet.png 실제 행 수 (256x256 / 32 = 8x8), PetState 값 개수와 일치
+    private const int Rows = 9; // pet.png 실제 행 수 (256x288 / 32 = 8x9), PetState 값 개수와 일치
 
     private readonly CroppedBitmap[,] _frames;
 

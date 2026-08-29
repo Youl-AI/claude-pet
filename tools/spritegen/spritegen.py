@@ -31,7 +31,7 @@ from pathlib import Path
 
 FRAME = 32
 COLS = 8
-ROWS = 8
+ROWS = 9
 W, H = FRAME * COLS, FRAME * ROWS
 
 # --- 레스트 포즈 지오메트리 (셀 기준 상대좌표, 양끝 포함 구간) ---
@@ -68,6 +68,8 @@ ROW_BODY_COLORS = (
     (230, 70, 60),    # 6 Blocked   — 강렬한 빨강
     (52, 50, 60),     # 7 Abandoned — 거의 검정. 순수 검정을 쓰지 않는 이유는
                       #   어두운 배경화면 위에서 형체가 아예 사라지기 때문이다.
+    (96, 100, 122),   # 8 Sleeping  — 흐린 청회색. 검정(Abandoned)과도, Error 회청과도
+                      #   구별된다. 리셋까지 강제 휴식이라는 "꺼짐"이 아니라 "잠듦".
 )
 
 EYE_COLOR = (26, 26, 26)  # 거의 검은 눈 — 밝은 몸통용 기본값
@@ -82,6 +84,7 @@ ROW_EYE_COLORS = (
     EYE_COLOR,             # 5 YourTurn — 산호주황 위 검은 눈
     BLOCKED_EYE_COLOR,     # 6 Blocked
     ABANDONED_EYE_COLOR,   # 7 Abandoned
+    ABANDONED_EYE_COLOR,   # 8 Sleeping
 )
 
 # --- 쓰러진 자세(Abandoned 전용) 지오메트리 ---
@@ -385,6 +388,52 @@ def abandoned_frame(col):
     return dict(lying=True, squash=ABANDONED_SQUASH[col])
 
 
+# 8 Sleeping — 토큰 한도. 리셋까지 강제 휴식. Abandoned와 같은 누운 몸이지만
+# 색이 청회색이고 머리 위로 Z가 떠오른다. 8프레임 순환: 작은 Z가 몸 가까이서
+# 나타나 위로 떠오르며 커지고, 큰 Z가 옅어지듯 사라진다. 프레임마다 Z의
+# 위치/조합이 달라 어느 두 프레임도 같지 않다.
+Z_SMALL = (
+    "111",
+    "010",
+    "111",
+)
+Z_BIG = (
+    "11111",
+    "00010",
+    "00100",
+    "01000",
+    "11111",
+)
+
+# (dx, dy, glyph) — 몸 오른쪽 위(코 근처 x=22, 몸 윗변 y=20 기준)에서의 상대 위치.
+# 위로 갈수록(작은 dy) 나중 단계다.
+SLEEP_Z_FRAMES = (
+    ((22, 14, Z_SMALL),),
+    ((21, 12, Z_SMALL),),
+    ((20, 10, Z_SMALL), (25, 15, Z_SMALL)),
+    ((19, 7, Z_BIG), (24, 13, Z_SMALL)),
+    ((18, 5, Z_BIG), (23, 11, Z_SMALL)),
+    ((17, 3, Z_BIG), (22, 9, Z_SMALL)),
+    ((16, 1, Z_BIG),),
+    ((22, 15, Z_SMALL), (17, 2, Z_BIG)),
+)
+assert len(SLEEP_Z_FRAMES) == COLS
+assert len(set(SLEEP_Z_FRAMES)) == COLS, "낮잠 Z 프레임이 전부 서로 달라야 함"
+
+Z_COLOR = (222, 226, 240)  # 몸보다 밝은 청백색 — 어두운 배경에서도 뜬다.
+
+
+def draw_z_glyph(px, ox, oy, gx, gy, glyph):
+    for row_i, row in enumerate(glyph):
+        for col_i, ch in enumerate(row):
+            if ch == "1":
+                put(px, ox, oy, gx + col_i, gy + row_i, Z_COLOR + (255,))
+
+
+def sleeping_frame(col):
+    return dict(lying=True, squash=ABANDONED_SQUASH[col], zs=SLEEP_Z_FRAMES[col])
+
+
 ROW_FRAME_FNS = (
     idle_frame,       # 0 Idle
     reading_frame,    # 1 Reading
@@ -394,6 +443,7 @@ ROW_FRAME_FNS = (
     yourturn_frame,   # 5 YourTurn
     blocked_frame,    # 6 Blocked
     abandoned_frame,  # 7 Abandoned
+    sleeping_frame,   # 8 Sleeping
 )
 assert len(ROW_FRAME_FNS) == ROWS, "행 함수 개수가 PetState 값 개수와 다름"
 assert len(ROW_BODY_COLORS) == ROWS, "행 색상 개수가 PetState 값 개수와 다름"
@@ -432,6 +482,7 @@ def main():
             mark_size = params.pop("mark_size", 0)
             question_dy = params.pop("question_dy", None)
             lying = params.pop("lying", False)
+            zs = params.pop("zs", ())
 
             ox, oy = col * FRAME, row * FRAME
             if lying:
@@ -445,6 +496,8 @@ def main():
                 draw_anger_mark(px, ox, oy, mark_size)
             if question_dy is not None:
                 draw_question_mark(px, ox, oy, question_dy)
+            for gx, gy, glyph in zs:
+                draw_z_glyph(px, ox, oy, gx, gy, glyph)
 
     out = Path(__file__).resolve().parents[2] / "src" / "PetApp" / "assets" / "pet.png"
     write_png(out, px)
