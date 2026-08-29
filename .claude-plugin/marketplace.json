@@ -1,10 +1,10 @@
 {
-  "name": "claude-pet-local",
+  "name": "claude-pet",
   "owner": {
     "name": "hayoul1999"
   },
   "metadata": {
-    "description": "Local marketplace hosting the claude-pet plugin from this repository",
+    "description": "Marketplace hosting the claude-pet plugin from this repository",
     "version": "0.1.0"
   },
   "plugins": [
