@@ -210,7 +210,15 @@ internal sealed class PetHost
                 // "지금 막힘"으로 되살아나는 거짓 신호가 된다. 파일명을 못 읽거나 신선하지
                 // 않으면 아예 파싱을 시도하지 않는다 — 그래야 영영 못 지우는 손상 파일도
                 // (신선도 기준을 넘기는 순간부터는) 파싱 실패 없이 곧장 삭제 경로를 탄다.
-                var isFresh = long.TryParse(Path.GetFileNameWithoutExtension(file), out var stamp)
+                // 시계가 뒤로 돌면(수동 변경·NTP 보정) stamp 가 미래가 되는데, 그 파일을
+                // 신선하다고 믿으면 며칠 전 알림이 되살아난다 — nowMs >= stamp 로 막는다.
+                // 파일명은 "stamp" 또는 "stamp-pid" — 같은 밀리초에 두 훅이 겹쳐도
+                // 잃지 않기 위한 접미사다. 접미사가 있으면 첫 '-' 앞까지만 stamp로 본다.
+                var name = Path.GetFileNameWithoutExtension(file);
+                var dash = name.IndexOf('-');
+                var stampText = dash >= 0 ? name[..dash] : name;
+                var isFresh = long.TryParse(stampText, out var stamp)
+                              && nowMs >= stamp
                               && nowMs - stamp <= StaleAfterMs;
 
                 if (isFresh)
