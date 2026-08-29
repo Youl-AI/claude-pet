@@ -291,4 +291,32 @@ public class PetStateMachineTests
         Assert.Equal(PetState.Running,
             PetStateMachine.Aggregate(new[] { newerSession, olderSession }));
     }
+
+    // --- RateLimited는 세션의 "활동"이 아니다 ---
+
+    [Fact]
+    public void RateLimitedDoesNotAdvanceSequenceOrState()
+    {
+        var m = new PetStateMachine();
+        m.Apply(new TranscriptEvent(TranscriptEventKind.ToolUse, "Read"));
+        var seqBefore = m.Sequence;
+        var stateBefore = m.Current;
+
+        m.Apply(new TranscriptEvent(TranscriptEventKind.RateLimited, ResetAtUnixMs: 123));
+
+        Assert.Equal(seqBefore, m.Sequence);
+        Assert.Equal(stateBefore, m.Current);
+    }
+
+    [Fact]
+    public void RateLimitedInOneSessionDoesNotBuryAnothersYourTurn()
+    {
+        var a = new PetStateMachine();
+        a.Apply(new TranscriptEvent(TranscriptEventKind.AssistantText));   // A: 턴 종료 -> YourTurn
+
+        var b = new PetStateMachine();
+        b.Apply(new TranscriptEvent(TranscriptEventKind.RateLimited));     // B: 한도 도달만
+
+        Assert.Equal(PetState.YourTurn, PetStateMachine.Aggregate(new[] { a, b }));
+    }
 }

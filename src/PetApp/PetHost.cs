@@ -121,8 +121,8 @@ internal sealed class PetHost
             var nowUnixMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
             foreach (var e in tail.ReadNew())
             {
-                machine.Apply(e);      // RateLimited 는 머신의 switch 에 케이스가 없어
-                                       // 상태를 바꾸지 않는다 — Sequence 만 오른다.
+                machine.Apply(e);      // RateLimited 는 머신이 그대로 무시한다 —
+                                       // 상태도 Sequence 도 건드리지 않는다.
                 _sleep.Observe(e, nowUnixMs);
             }
         }

@@ -66,6 +66,12 @@ public sealed class PetStateMachine
 
     public void Apply(TranscriptEvent e)
     {
+        // 한도 도달 줄은 세션의 "활동"이 아니다 — 상태도 안 바꾸고 최신 순위도
+        // 움직이면 안 된다. Sequence 만 올리면 아무 상태도 나르지 않으면서
+        // Aggregate 의 최신-우선 선택을 밀어내, 깬 뒤 다른 세션의 YourTurn 을
+        // 영영 묻어버린다 (전역 낮잠 판정은 PetHost 의 SleepGate 가 따로 본다).
+        if (e.Kind == TranscriptEventKind.RateLimited) return;
+
         Sequence = Interlocked.Increment(ref _globalSequence);
 
         switch (e.Kind)
