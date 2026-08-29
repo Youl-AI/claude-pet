@@ -17,7 +17,8 @@ try {
         atUnixMs         = $stamp
     }
 
-    $target = Join-Path $notifyDir "$stamp.json"
+    # 같은 밀리초에 두 훅이 겹치면 파일명이 충돌해 하나가 사라진다 — PID를 붙여 유일하게 만든다.
+    $target = Join-Path $notifyDir "$stamp-$PID.json"
     $record | ConvertTo-Json -Compress | Set-Content -Path $target -Encoding utf8
 
     # 알림이 왔다는 건 사람이 필요하다는 뜻 — 죽은 펫이 가장 문제가 되는 순간이다.
