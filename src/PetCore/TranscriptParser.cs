@@ -18,6 +18,24 @@ public static class TranscriptParser
             var root = doc.RootElement;
             if (root.ValueKind != JsonValueKind.Object)
                 return Array.Empty<TranscriptEvent>();
+
+            // 한도 도달 줄은 assistant text 형태라 아래 규칙대로면 "턴 종료"로
+            // 오분류된다. 최상위 error 필드를 먼저 본다 — 정확히 "rate_limit"만.
+            // authentication_failed / server_error 도 같은 자리에 오지만(실측)
+            // 그것들은 낮잠이 아니다. (스펙 §1.1)
+            if (root.TryGetProperty("error", out var errorProp)
+                && errorProp.ValueKind == JsonValueKind.String
+                && errorProp.GetString() == "rate_limit")
+            {
+                return new[]
+                {
+                    new TranscriptEvent(
+                        TranscriptEventKind.RateLimited,
+                        ResetAtUnixMs: RateLimitReset.Resolve(
+                            FirstTextContent(root), DateTimeOffset.Now)),
+                };
+            }
+
             if (!root.TryGetProperty("message", out var message))
                 return Array.Empty<TranscriptEvent>();
             if (message.ValueKind != JsonValueKind.Object)
@@ -82,5 +100,26 @@ public static class TranscriptParser
             }
             return results;
         }
+    }
+
+    /// <summary>message.content 배열에서 첫 text 블록의 문자열. 없으면 null.</summary>
+    private static string? FirstTextContent(JsonElement root)
+    {
+        if (!root.TryGetProperty("message", out var message)
+            || message.ValueKind != JsonValueKind.Object) return null;
+        if (!message.TryGetProperty("content", out var content)
+            || content.ValueKind != JsonValueKind.Array) return null;
+
+        foreach (var item in content.EnumerateArray())
+        {
+            if (item.ValueKind == JsonValueKind.Object
+                && item.TryGetProperty("type", out var t)
+                && t.ValueKind == JsonValueKind.String
+                && t.GetString() == "text"
+                && item.TryGetProperty("text", out var txt)
+                && txt.ValueKind == JsonValueKind.String)
+                return txt.GetString();
+        }
+        return null;
     }
 }

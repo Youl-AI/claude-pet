@@ -6,10 +6,12 @@ public enum TranscriptEventKind
     ToolResult,
     AssistantText,
     Thinking,
-    Other
+    Other,
+    RateLimited
 }
 
 public sealed record TranscriptEvent(
     TranscriptEventKind Kind,
     string? ToolName = null,
-    bool IsError = false);
+    bool IsError = false,
+    long? ResetAtUnixMs = null);
