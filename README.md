@@ -30,17 +30,17 @@ Claude Code를 오래 쓰다 보면 사용량은 숫자로만 쌓입니다. 그 
 열려 있는 모든 Claude Code 세션을 지켜보다가, 가장 우선순위 높은 상태를
 몸 색과 동작으로 보여줍니다.
 
-| 색 | 상태 | 표현 |
-|---|---|---|
-| 산호주황 `#D6845A` | 대기 중 | 작업 표시줄 위를 어슬렁거림 |
-| 산호주황 `#D6845A` | 당신 차례 | 머리 위에 물음표가 떠다님 |
-| 파랑 `#78B4F0` | 읽는 중 (Read/Grep/검색) | 눈이 좌우로 스캔 |
-| 초록 `#8CE196` | 쓰는 중 (Edit/Write) | |
-| 호박색 `#FABE46` | 도구 실행 중 | 몸이 진행 방향으로 기울어 달림 |
-| 회청색 `#9696A5` | 도구 오류 | 눈을 질끈 감고 휘청거림 |
-| 빨강 `#E6463C` | 권한 승인 대기로 막힘 | 머리 위에 빠직(💢) 마크 |
-| 거의 검정 `#34323C` | 오래 방치됨 | 바닥에 납작 엎드림 |
-| 청회색 `#60647A` | 토큰 한도 도달 | 누워서 Zzz — 리셋 시각에 스스로 깨어남 |
+| 모습 | 색 | 상태 | 표현 |
+|:---:|---|---|---|
+| <img src="docs/images/states/idle.gif" width="56"> | 산호주황 `#D6845A` | 대기 중 | 작업 표시줄 위를 어슬렁거림 |
+| <img src="docs/images/states/yourturn.gif" width="56"> | 산호주황 `#D6845A` | 당신 차례 | 머리 위에 물음표가 떠다님 |
+| <img src="docs/images/states/reading.gif" width="56"> | 파랑 `#78B4F0` | 읽는 중 (Read/Grep/검색) | 눈이 좌우로 스캔 |
+| <img src="docs/images/states/writing.gif" width="56"> | 초록 `#8CE196` | 쓰는 중 (Edit/Write) | |
+| <img src="docs/images/states/running.gif" width="56"> | 호박색 `#FABE46` | 도구 실행 중 | 몸이 진행 방향으로 기울어 달림 |
+| <img src="docs/images/states/error.gif" width="56"> | 회청색 `#9696A5` | 도구 오류 | 눈을 질끈 감고 휘청거림 |
+| <img src="docs/images/states/blocked.gif" width="56"> | 빨강 `#E6463C` | 권한 승인 대기로 막힘 | 머리 위에 빠직(💢) 마크 |
+| <img src="docs/images/states/abandoned.gif" width="56"> | 거의 검정 `#34323C` | 오래 방치됨 | 바닥에 납작 엎드림 |
+| <img src="docs/images/states/sleeping.gif" width="56"> | 청회색 `#60647A` | 토큰 한도 도달 | 누워서 Zzz — 리셋 시각에 스스로 깨어남 |
 
 여러 세션이 동시에 열려 있으면 세션별 상태를 종합해 하나로 보여줍니다.
 "막힘 > 당신 차례 > 작업 중" 순서라, 어딘가에서 승인을 기다리고 있으면
@@ -178,7 +178,7 @@ src/PetCore/        상태 머신, 트랜스크립트 파서, 레벨 계산, 워
 src/PetApp/         WPF 창, 렌더링, 네이티브 창 스타일
 tests/PetCore.Tests/  단위 테스트 190개
 plugin/             훅 스크립트 + 배포 바이너리 (claude-pet.exe, 1MB 미만)
-tools/spritegen/    스프라이트 시트 생성 스크립트 (Python)
+tools/spritegen/    스프라이트 시트·상태 GIF 생성 스크립트 (Python)
 bench/              간섭 측정 벤치마크 (파일 쓰기 지연 + CPU 경합)
 docs/               설계 스펙, 구현 계획, 백로그
 ```
