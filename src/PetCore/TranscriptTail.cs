@@ -35,6 +35,12 @@ public sealed class TranscriptTail
 
             var text = Encoding.UTF8.GetString(buffer, 0, completeLength);
 
+            // Position이 0으로 리셋된 뒤(예: 컴팩션으로 인한 truncation) 그 지점의 바이트가
+            // UTF-8 BOM으로 시작하면 GetString이 첫 줄 맨 앞에 U+FEFF를 남긴다. 그대로
+            // 두면 JSON 파서가 첫 줄을 실패시켜 조용히 버린다 — 크래시가 아니라 데이터
+            // 유실이라 더 위험하다.
+            if (text.Length > 0 && text[0] == '\uFEFF') text = text[1..];
+
             var events = new List<TranscriptEvent>();
             foreach (var rawLine in text.Split('\n'))
             {

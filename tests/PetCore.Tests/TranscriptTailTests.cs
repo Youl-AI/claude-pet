@@ -103,6 +103,24 @@ public class TranscriptTailTests : IDisposable
     }
 
     [Fact]
+    public void ReadNew_StripsLeadingBom_WhenPositionResetToZeroAfterTruncation()
+    {
+        // Position=0에서 다시 읽을 때(예: 컴팩션에 의한 truncation 리셋) 그 시점의
+        // 바이트가 UTF-8 BOM으로 시작하면 Encoding.UTF8.GetString이 첫 줄 맨 앞에
+        // ﻿를 남긴다. 이 문자가 그대로 파서로 가면 JSON.Parse가 실패해 첫 줄이
+        // 조용히 사라진다(크래시가 아니라 데이터 유실이라 더 위험하다).
+        var bom = new byte[] { 0xEF, 0xBB, 0xBF };
+        var bytes = bom.Concat(Encoding.UTF8.GetBytes(ToolUseLine + "\n")).ToArray();
+        File.WriteAllBytes(_path, bytes);
+
+        var tail = new TranscriptTail(_path);
+        var events = tail.ReadNew();
+
+        Assert.Single(events);
+        Assert.Equal(TranscriptEventKind.ToolUse, events[0].Kind);
+    }
+
+    [Fact]
     public void ReadNew_ReturnsEmpty_WhenFileMissing()
     {
         var tail = new TranscriptTail(Path.Combine(Path.GetTempPath(), "does-not-exist.jsonl"));
