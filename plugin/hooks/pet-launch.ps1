@@ -5,9 +5,11 @@
 # try/catch로 감쌀 필요는 없다.
 
 # 펫이 살아있는지는 프로세스 이름이 아니라 뮤텍스로 판정한다.
-# 이 머신에는 VS Code Python 확장이 띄우는 무관한 pet.exe 도 돌고 있어서
-# 이름 매칭은 오탐을 낸다. 뮤텍스(Local\claude-pet)는 펫 자신이 SingleInstance.TryAcquire
-# 에서 쓰는 것과 동일한 권위이므로 이것으로 판정하는 게 맞다.
+# 뮤텍스(Local\claude-pet)는 펫 자신이 SingleInstance.TryAcquire 에서 쓰는 것과
+# 동일한 권위이므로 이것으로 판정하는 게 맞다. 이름 매칭이었다면 실행 파일 이름이
+# 겹치는 남의 프로세스를 펫으로 오인했을 것이다 — 실제로 VS Code Python 확장이
+# python-env-tools/bin/pet.exe 를 띄우고 있어서, 실행 파일 이름을 claude-pet.exe 로
+# 바꾸기 전까지는 정확히 그 상황이었다.
 function Test-PetRunning {
     try {
         $m = [System.Threading.Mutex]::OpenExisting('Local\claude-pet')
@@ -55,7 +57,7 @@ function Test-DesktopRuntime {
 }
 
 # 펫이 죽어 있으면 다시 띄운다. 세션당 최대 4번(카운터가 3을 초과하기 전까지)까지만
-# 시도하는 서킷 브레이커를 둔다 — pet.exe 가 뜨자마자 죽는 상황(예: 손상된 빌드)에서
+# 시도하는 서킷 브레이커를 둔다 — claude-pet.exe 가 뜨자마자 죽는 상황(예: 손상된 빌드)에서
 # 매 알림마다 무한히 Start-Process 를 시도하는 것을 막기 위해서다.
 function Invoke-PetRecovery {
     param(
@@ -80,7 +82,7 @@ function Invoke-PetRecovery {
     #    카운터가 세려는 것은 "띄웠는데 죽더라"이지 "띄울 수 없는 환경"이 아니다.
     #    (예전에는 이 두 검사가 카운터 증가 뒤에 있어서, 실행 파일이 없는 설치에서도
     #     시도 횟수만 4까지 올라가고 launch/*.count 파일이 남았다.)
-    $exe = Join-Path $PluginRoot 'bin/pet.exe'
+    $exe = Join-Path $PluginRoot 'bin/claude-pet.exe'
     if (-not (Test-Path $exe)) { return }
     if (-not (Test-DesktopRuntime)) { return }
 

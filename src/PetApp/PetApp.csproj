@@ -10,7 +10,11 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
-    <AssemblyName>pet</AssemblyName>
+    <!-- claude-pet: 'pet' 로 두면 VS Code Python 확장이 함께 설치하는
+         python-env-tools/bin/pet.exe 와 프로세스 이름이 겹친다. 뮤텍스로 생존을
+         판정하므로 펫 자신은 헷갈리지 않지만, 사용자가 Get-Process pet 이나
+         taskkill /IM pet.exe 로 펫을 잡으려다 남의 프로세스를 죽이게 된다. -->
+    <AssemblyName>claude-pet</AssemblyName>
     <!-- 롤포워드 기본값(Minor)은 메이저 버전을 넘지 않는다. 즉 net10 로 빌드한
          앱은 .NET 11 만 설치된 머신에서 "You must install or update .NET" 으로
          기동 실패한다(실측 확인). LatestMajor 는 더 높은 메이저 런타임을

@@ -19,8 +19,9 @@
     (working) 세 CPU 구간을 의도적으로 분리해서 잰다.
   - 펫에게는 하네스가 직접 통제하는 트랜스크립트를 가리키는 합성 세션을 등록한다
     (SessionStart 훅 없이도 워치독이 펫을 살려두게).
-  - 이 기기에는 무관한 pet.exe(VS Code Python 확장의 python-env-tools)가 함께 떠
-    있을 수 있다 — 프로세스 이름이 아니라 전체 경로로만 우리 펫을 구분한다.
+  - 프로세스 이름이 아니라 전체 경로로만 우리 펫을 구분한다. 실행 파일 이름이
+    claude-pet.exe 라 예전 pet.exe 시절 같은 이름 충돌은 없지만, 저장소 밖의 다른
+    빌드가 떠 있어도 이 측정에 섞이지 않게 하려면 경로 매칭이 여전히 맞다.
   - 시작한 펫 프로세스와 임시 디렉터리를 스크립트 종료 시 항상 정리한다.
 
   측정 대상 워크로드는 두 축이다.
@@ -53,14 +54,13 @@ Set-StrictMode -Version Latest
 
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $repoRoot  = Split-Path -Parent $scriptDir
-$petExe    = Join-Path $repoRoot 'plugin\bin\pet.exe'
+$petExe    = Join-Path $repoRoot 'plugin\bin\claude-pet.exe'
 
 if (-not (Test-Path $petExe)) {
-    throw "pet.exe가 없습니다: $petExe`n먼저 다음으로 빌드하세요:`n  dotnet publish src/PetApp/PetApp.csproj -c Release -r win-x64 -p:SelfContained=false -p:PublishSingleFile=true -o plugin/bin"
+    throw "claude-pet.exe가 없습니다: $petExe`n먼저 다음으로 빌드하세요:`n  dotnet publish src/PetApp/PetApp.csproj -c Release -r win-x64 -p:SelfContained=false -p:PublishSingleFile=true -o plugin/bin"
 }
-# 심볼릭 링크·상대 경로를 정규화한 전체 경로. 이 경로로만 "우리" pet.exe를 구분한다 —
-# 이 기기에는 VS Code Python 확장(ms-python.vscode-python-envs-...\pet.exe)이 같은
-# 프로세스 이름으로 떠 있을 수 있고, 이름만으로 찾으면 그걸 잘못 죽이거나 잘못 잰다.
+# 심볼릭 링크·상대 경로를 정규화한 전체 경로. 이 경로로만 "우리" claude-pet.exe를
+# 구분한다 — 다른 위치의 빌드가 떠 있어도 그걸 잘못 죽이거나 잘못 재지 않는다.
 $petExeFull = (Resolve-Path $petExe).Path
 $logicalProcessors = [Environment]::ProcessorCount
 
@@ -80,7 +80,7 @@ if ($WorkingEventIntervalSeconds -ge 20) {
 }
 
 Write-Host "=== 환경 ==="
-Write-Host ("pet.exe:          {0}" -f $petExeFull)
+Write-Host ("claude-pet.exe:   {0}" -f $petExeFull)
 Write-Host ("논리 프로세서 수: {0}  (CPU %는 코어당/시스템전체 둘 다 아래에 보고한다)" -f $logicalProcessors)
 Write-Host ("Blocks:           {0} (ON {1} / OFF {1}, 무작위 순서)" -f $Blocks, ($Blocks / 2))
 Write-Host ""
@@ -143,7 +143,7 @@ function Start-OurPet {
     Start-Process -FilePath $petExeFull -WindowStyle Hidden
     $procs = Wait-ForPetState -ShouldExist:$true -TimeoutSeconds 10
     if (-not $procs) {
-        throw "pet.exe가 뜨지 않았습니다 (뮤텍스 충돌 또는 시작 실패). 이미 실행 중인 인스턴스가 있는지 확인하세요."
+        throw "claude-pet.exe가 뜨지 않았습니다 (뮤텍스 충돌 또는 시작 실패). 이미 실행 중인 인스턴스가 있는지 확인하세요."
     }
     $proc = @($procs)[0]
     # PetHost 폴링 주기는 1초 — 최소 한 번의 폴링(세션 부착 + SkipToEnd)이

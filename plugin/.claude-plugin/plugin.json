@@ -1,6 +1,6 @@
 {
   "name": "claude-pet",
-  "version": "0.5.2",
+  "version": "0.5.3",
   "description": "Windows-only desktop pet that reacts to Claude Code activity without interfering with it",
   "author": { "name": "Youl-AI" },
   "license": "MIT"
