@@ -2,6 +2,7 @@ using System;
 using System.Diagnostics;
 using System.IO;
 using System.Windows;
+using System.Windows.Threading;
 using PetCore;
 
 namespace PetApp;
@@ -13,6 +14,14 @@ public partial class App : Application
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
+
+        // 마지막 안전망 — Tick()/PetHost.Poll() 등 각 지점의 개별 방어를 뚫고
+        // 새어나온 예외가 있더라도 여기서 잡아 프로세스 종료를 막는다.
+        // 장식용 펫이 죽는 것보다는 그 틱을 건너뛰는 편이 낫다.
+        DispatcherUnhandledException += (_, args) =>
+        {
+            args.Handled = true;
+        };
 
         // 뮤텍스 스레드 소속: SingleInstance.TryAcquire (여기, OnStartup)와
         // _instance.Dispose (OnExit)가 서로 다른 스레드에서 불리면 Mutex.ReleaseMutex가

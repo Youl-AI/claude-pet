@@ -97,117 +97,132 @@ public partial class PetWindow : Window
 
     private void Tick()
     {
-        // 전체화면 앱이 앞에 있으면 숨고 렌더링을 멈춘다. 잠든 상태에서도
-        // 이 검사만은 계속 돌아야 한다 — 그래야 잠든 채로 전체화면 앱이
-        // 뜨더라도 펫이 곧바로 숨는다. 다만 검사 자체(P/Invoke 몇 번)를 매
-        // 틱 반복할 필요는 없으므로 대략 초당 1회로만 폴링한다.
-        if (_fullscreenPollCounter <= 0)
+        // 12fps 콜백에서 새는 예외는 프로세스를 죽인다 — 장식용 펫은
+        // 한 프레임을 버리는 쪽이 옳다. 다음 틱에서 다시 시도한다.
+        try
         {
-            _isFullscreenHiding = NativeMethods.IsFullscreenAppForeground(_hwnd);
-            _fullscreenPollCounter = FullscreenPollIntervalTicks;
-        }
-        _fullscreenPollCounter--;
-
-        if (_isFullscreenHiding)
-        {
-            if (Visibility == Visibility.Visible) Visibility = Visibility.Hidden;
-            return;
-        }
-        if (Visibility != Visibility.Visible) Visibility = Visibility.Visible;
-
-        // 레벨업 이펙트는 상태와 무관한 자기 타임라인으로 돈다. 잠듦 반환보다 앞에 있어야
-        // 잠든 채로 레벨이 올라도 재생된다.
-        AdvanceFlash();
-
-        // 잠들었는지 여부는 Left/Top/Sprite.Source를 조금이라도 건드리기
-        // 전에 확정한다 — 그래야 잠든 펫은 위치 계산도, 창 재배치도, 스프라
-        // 이트 갱신도 전혀 하지 않는다(레이어드 윈도우 재합성 0회). resting
-        // 집합을 벗어나는 상태로 바뀌면(예: Idle→Running) 이 카운터가 같은
-        // 틱에서 즉시 0으로 리셋되므로 깨어남에는 지연이 없다. 위의 전체화면
-        // 검사만은 이 리턴보다 앞에 있어 잠든 동안에도 계속 돌고, 잠든 채로
-        // 전체화면 앱이 뜨거나 내려가도 숨김/재표시가 정상 동작한다.
-        // Abandoned 도 잠듦 대상에 넣는다. 60초 방치 알림이 떴다는 것은 사람이
-        // 자리에 없다는 뜻이므로, 그 상태에서 12fps 렌더 루프를 계속 돌릴 이유가
-        // 없다. 누운 포즈는 정지 그림이라 멈춰도 보이는 것이 달라지지 않는다.
-        var resting = _state is PetState.Idle or PetState.Abandoned or PetState.Sleeping;
-        // 절전 카운터는 "같은 상태가 이어진 틱 수"여야 한다. resting 집합 안에서
-        // 상태가 바뀌는 전이(Idle→Sleeping, Sleeping→Idle 등)에서 리셋하지 않으면
-        // 프레임 갱신이 멎은 채 이전 포즈가 그대로 남는다 — 낮잠이 한 번도
-        // 그려지지 않거나, 리셋 후에도 계속 누워 있는 버그가 실제로 그랬다.
-        if (_state != _lastTickState) { _idleTicks = 0; _lastTickState = _state; }
-        _idleTicks = resting ? _idleTicks + 1 : 0;
-        if (_idleTicks > SleepAfterTicks) return;
-
-        var work = SystemParameters.WorkArea;
-
-        // 레이어드 윈도우 재합성 비용을 줄이려고 위치 이동 자체는 6Hz로만
-        // 계산한다(12fps 틱의 절반). 건너뛴 틱에는 _x가 그대로이므로 아래
-        // Left 대입 가드가 자연히 걸러 SetWindowPos를 추가로 부르지 않는다.
-        var shouldReposition = _repositionTick == 0;
-        _repositionTick = (_repositionTick + 1) % 2;
-
-        if (shouldReposition)
-        {
-            // 설계서 §9.1: Idle은 천천히 배회하고 가끔 앉거나 존다. Running은
-            // 빠르게 걷는다. NeedsYou는 하단 중앙으로 모인다. Reading/Writing/
-            // Error는 제자리에서 반응만 한다 — 가로 이동이 없다. 계산은 두
-            // 틱에 한 번만 도니, 체감 속도를 유지하려고 틱당 거리를 두 배로
-            // 준다.
-            switch (_state)
+            // 전체화면 앱이 앞에 있으면 숨고 렌더링을 멈춘다. 잠든 상태에서도
+            // 이 검사만은 계속 돌아야 한다 — 그래야 잠든 채로 전체화면 앱이
+            // 뜨더라도 펫이 곧바로 숨는다. 다만 검사 자체(P/Invoke 몇 번)를 매
+            // 틱 반복할 필요는 없으므로 대략 초당 1회로만 폴링한다.
+            if (_fullscreenPollCounter <= 0)
             {
-                case PetState.Blocked:
-                    // 승인 대기만 화면 하단 중앙으로 모인다. 사람이 반드시 봐야
-                    // 하는 유일한 상태이기 때문이다. YourTurn 과 Abandoned 는
-                    // 제자리에 머문다 — 전자는 물음표로, 후자는 누운 실루엣으로
-                    // 이미 구분되고, 굳이 시선을 끌 만큼 급하지 않다.
-                    // 창이 레벨 표기를 위해 116px 로 넓어지고 펫은 캔버스 x=PetCellOriginX
-                    // 에서 시작하는 64px 셀 안에 있다 (셀 절반은 32). Width/2 로 창
-                    // 전체를 중앙에 맞추면 펫 자신은 명패 폭만큼 오른쪽으로 치우친다 —
-                    // 펫 셀의 중심이 작업 영역 중앙에 오도록 잡는다.
-                    var center = work.Left + work.Width / 2 - (PetCellOriginX + 32);
-                    _x += Math.Sign(center - _x) * BlockedPixelsPerTick * RepositionPixelMultiplier;
-                    break;
-                case PetState.Idle:
-                    Bounce(work, IdleWanderPixelsPerTick * RepositionPixelMultiplier);
-                    break;
-                case PetState.Running:
-                    Bounce(work, RunningPixelsPerTick * RepositionPixelMultiplier);
-                    break;
-                default:
-                    // Reading, Writing, Error: 제자리. _x를 건드리지 않는다 —
-                    // 이러면 Left 재대입도 없어져 매 틱 SetWindowPos와 레이어드
-                    // 서피스 재합성이 그만큼 줄어든다.
-                    break;
+                _isFullscreenHiding = NativeMethods.IsFullscreenAppForeground(_hwnd);
+                _fullscreenPollCounter = FullscreenPollIntervalTicks;
+            }
+            _fullscreenPollCounter--;
+
+            if (_isFullscreenHiding)
+            {
+                if (Visibility == Visibility.Visible) Visibility = Visibility.Hidden;
+                return;
+            }
+            if (Visibility != Visibility.Visible) Visibility = Visibility.Visible;
+
+            // 레벨업 이펙트는 상태와 무관한 자기 타임라인으로 돈다. 잠듦 반환보다 앞에 있어야
+            // 잠든 채로 레벨이 올라도 재생된다.
+            AdvanceFlash();
+
+            // 잠들었는지 여부는 Left/Top/Sprite.Source를 조금이라도 건드리기
+            // 전에 확정한다 — 그래야 잠든 펫은 위치 계산도, 창 재배치도, 스프라
+            // 이트 갱신도 전혀 하지 않는다(레이어드 윈도우 재합성 0회). resting
+            // 집합을 벗어나는 상태로 바뀌면(예: Idle→Running) 이 카운터가 같은
+            // 틱에서 즉시 0으로 리셋되므로 깨어남에는 지연이 없다. 위의 전체화면
+            // 검사만은 이 리턴보다 앞에 있어 잠든 동안에도 계속 돌고, 잠든 채로
+            // 전체화면 앱이 뜨거나 내려가도 숨김/재표시가 정상 동작한다.
+            // Abandoned 도 잠듦 대상에 넣는다. 60초 방치 알림이 떴다는 것은 사람이
+            // 자리에 없다는 뜻이므로, 그 상태에서 12fps 렌더 루프를 계속 돌릴 이유가
+            // 없다. 누운 포즈는 정지 그림이라 멈춰도 보이는 것이 달라지지 않는다.
+            var resting = _state is PetState.Idle or PetState.Abandoned or PetState.Sleeping;
+            // 절전 카운터는 "같은 상태가 이어진 틱 수"여야 한다. resting 집합 안에서
+            // 상태가 바뀌는 전이(Idle→Sleeping, Sleeping→Idle 등)에서 리셋하지 않으면
+            // 프레임 갱신이 멎은 채 이전 포즈가 그대로 남는다 — 낮잠이 한 번도
+            // 그려지지 않거나, 리셋 후에도 계속 누워 있는 버그가 실제로 그랬다.
+            if (_state != _lastTickState) { _idleTicks = 0; _lastTickState = _state; }
+            _idleTicks = resting ? _idleTicks + 1 : 0;
+            if (_idleTicks > SleepAfterTicks) return;
+
+            var work = SystemParameters.WorkArea;
+
+            // 레이어드 윈도우 재합성 비용을 줄이려고 위치 이동 자체는 6Hz로만
+            // 계산한다(12fps 틱의 절반). 건너뛴 틱에는 _x가 그대로이므로 아래
+            // Left 대입 가드가 자연히 걸러 SetWindowPos를 추가로 부르지 않는다.
+            var shouldReposition = _repositionTick == 0;
+            _repositionTick = (_repositionTick + 1) % 2;
+
+            if (shouldReposition)
+            {
+                // 설계서 §9.1: Idle은 천천히 배회하고 가끔 앉거나 존다. Running은
+                // 빠르게 걷는다. NeedsYou는 하단 중앙으로 모인다. Reading/Writing/
+                // Error는 제자리에서 반응만 한다 — 가로 이동이 없다. 계산은 두
+                // 틱에 한 번만 도니, 체감 속도를 유지하려고 틱당 거리를 두 배로
+                // 준다.
+                switch (_state)
+                {
+                    case PetState.Blocked:
+                        // 승인 대기만 화면 하단 중앙으로 모인다. 사람이 반드시 봐야
+                        // 하는 유일한 상태이기 때문이다. YourTurn 과 Abandoned 는
+                        // 제자리에 머문다 — 전자는 물음표로, 후자는 누운 실루엣으로
+                        // 이미 구분되고, 굳이 시선을 끌 만큼 급하지 않다.
+                        // 창이 레벨 표기를 위해 116px 로 넓어지고 펫은 캔버스 x=PetCellOriginX
+                        // 에서 시작하는 64px 셀 안에 있다 (셀 절반은 32). Width/2 로 창
+                        // 전체를 중앙에 맞추면 펫 자신은 명패 폭만큼 오른쪽으로 치우친다 —
+                        // 펫 셀의 중심이 작업 영역 중앙에 오도록 잡는다.
+                        var center = work.Left + work.Width / 2 - (PetCellOriginX + 32);
+                        _x += Math.Sign(center - _x) * BlockedPixelsPerTick * RepositionPixelMultiplier;
+                        break;
+                    case PetState.Idle:
+                        Bounce(work, IdleWanderPixelsPerTick * RepositionPixelMultiplier);
+                        break;
+                    case PetState.Running:
+                        Bounce(work, RunningPixelsPerTick * RepositionPixelMultiplier);
+                        break;
+                    default:
+                        // Reading, Writing, Error: 제자리. _x를 건드리지 않는다 —
+                        // 이러면 Left 재대입도 없어져 매 틱 SetWindowPos와 레이어드
+                        // 서피스 재합성이 그만큼 줄어든다.
+                        break;
+                }
+            }
+
+            // 작업 영역이 줄어들 수 있다 (모니터 분리, 해상도 변경, 작업표시줄
+            // 이동). 정지 상태에서도 stale한 _x가 새 작업 영역 밖에 남지 않도록
+            // 상태와 무관하게 매 틱 clamp한다.
+            // 세로/좁은 모니터에서 작업 영역이 창(116px)보다 좁으면 min > max 로
+            // Clamp 가 던진다 — hi 를 lo 아래로 내려가지 않게 방어한다.
+            var lo = work.Left;
+            var hi = Math.Max(lo, work.Right - Width);
+            _x = Math.Clamp(_x, lo, hi);
+
+            // 발이 작업 영역 바닥에 오는 배치를 유지한다 — 창 높이가 15% 띠
+            // 높이보다 큰 저해상도(예: 1366x768)에서도 이게 항상 띠 안에 드는
+            // 가장 낮은 위치다. (아래 리포트에 1366x768 산술 근거를 남긴다.)
+            var top = work.Bottom - Height;
+
+            // 값이 실제로 바뀔 때만 대입한다. WPF DP는 동일 값 대입을 내부적으로
+            // 걸러내지만, 명시적으로도 걸러 Left/Top 관련 SetWindowPos 호출을
+            // 확실히 줄인다. Left는 건너뛴 틱에는 _x가 안 바뀌므로 이 가드만으로
+            // 자연히 6Hz로 눌린다 — shouldReposition을 따로 검사할 필요가 없다.
+            if (Left != _x) Left = _x;
+            if (Top != top) Top = top;
+
+            _frame = (_frame + 1) % SpriteSheet.Columns;
+            var next = _sheet.Frame(_state, _frame);
+
+            // 시트 안에는 열이 달라도 그림이 같은 프레임이 섞여 있다
+            // (SpriteSheet가 생성자에서 픽셀 동일 프레임을 같은 인스턴스로
+            // 캐시한다). 실제로 그림이 바뀔 때만 Source를 재대입해 불필요한
+            // 레이어드 윈도우 재합성을 피한다.
+            if (!ReferenceEquals(next, Sprite.Source))
+            {
+                Sprite.Source = next;
             }
         }
-
-        // 작업 영역이 줄어들 수 있다 (모니터 분리, 해상도 변경, 작업표시줄
-        // 이동). 정지 상태에서도 stale한 _x가 새 작업 영역 밖에 남지 않도록
-        // 상태와 무관하게 매 틱 clamp한다.
-        _x = Math.Clamp(_x, work.Left, work.Right - Width);
-
-        // 발이 작업 영역 바닥에 오는 배치를 유지한다 — 창 높이가 15% 띠
-        // 높이보다 큰 저해상도(예: 1366x768)에서도 이게 항상 띠 안에 드는
-        // 가장 낮은 위치다. (아래 리포트에 1366x768 산술 근거를 남긴다.)
-        var top = work.Bottom - Height;
-
-        // 값이 실제로 바뀔 때만 대입한다. WPF DP는 동일 값 대입을 내부적으로
-        // 걸러내지만, 명시적으로도 걸러 Left/Top 관련 SetWindowPos 호출을
-        // 확실히 줄인다. Left는 건너뛴 틱에는 _x가 안 바뀌므로 이 가드만으로
-        // 자연히 6Hz로 눌린다 — shouldReposition을 따로 검사할 필요가 없다.
-        if (Left != _x) Left = _x;
-        if (Top != top) Top = top;
-
-        _frame = (_frame + 1) % SpriteSheet.Columns;
-        var next = _sheet.Frame(_state, _frame);
-
-        // 시트 안에는 열이 달라도 그림이 같은 프레임이 섞여 있다
-        // (SpriteSheet가 생성자에서 픽셀 동일 프레임을 같은 인스턴스로
-        // 캐시한다). 실제로 그림이 바뀔 때만 Source를 재대입해 불필요한
-        // 레이어드 윈도우 재합성을 피한다.
-        if (!ReferenceEquals(next, Sprite.Source))
+        catch (Exception)
         {
-            Sprite.Source = next;
+            // 12fps 콜백에서 새는 예외는 프로세스를 죽인다 — 장식용 펫은
+            // 한 프레임을 버리는 쪽이 옳다. 종류를 열거하지 않는다 — 이 저장소는
+            // 좁은 catch 가 세 번 뚫린 이력이 있다.
         }
     }
 
