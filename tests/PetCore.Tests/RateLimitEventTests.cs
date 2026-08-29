@@ -95,6 +95,7 @@ public class RateLimitEventTests
     [InlineData("You've hit your monthly spend limit · raise it at claude.ai")]
     [InlineData("resets soon")]
     [InlineData("resets 25:99xx")]
+    [InlineData("resets 13:30pm (Asia/Seoul)")]
     public void UnparseableTextYieldsNull(string? text)
     {
         Assert.Null(RateLimitReset.Resolve(text, Noon));
