@@ -111,4 +111,67 @@ public class TranscriptCostScannerTests : IDisposable
 
         Assert.Equal(25m, new TranscriptCostScanner().ScanFile(path));
     }
+
+    // --- 바이트 스캐너 전환 (RAM 절감) 관련 ---
+
+    [Fact]
+    public void ALineAboveTheCapIsSkippedAndTheRestStillCounts()
+    {
+        // 상한(8MB)을 넘는 병리적 줄은 통째로 건너뛴다 — 문자열로 만들지도 않는다.
+        // 실측 최대 실사용 줄은 2.39MB 라 정상 데이터는 상한에 걸리지 않는다.
+        var hugePayload = new string('x', 9 * 1024 * 1024);
+        var hugeLine = $$$$"""{"message":{"id":"msg_huge","model":"claude-opus-5","usage":{"output_tokens":1000000},"content":[{"type":"text","text":"{{{{hugePayload}}}}"}]}}""";
+        var path = WriteFile("cap.jsonl",
+            Line("msg_1", "claude-opus-5", 1_000_000),
+            hugeLine,
+            Line("msg_2", "claude-opus-5", 1_000_000));
+
+        Assert.Equal(50m, new TranscriptCostScanner().ScanFile(path));
+    }
+
+    [Fact]
+    public void ABigButLegalLineStillCounts()
+    {
+        // 상한 이하의 큰 줄(수백 KB)은 정상 데이터다 — 그대로 계산돼야 한다.
+        var payload = new string('y', 300 * 1024);
+        var bigLine = $$$$"""{"message":{"id":"msg_big","model":"claude-opus-5","usage":{"input_tokens":0,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":1000000},"content":[{"type":"text","text":"{{{{payload}}}}"}]}}""";
+        var path = WriteFile("big.jsonl", bigLine);
+
+        Assert.Equal(25m, new TranscriptCostScanner().ScanFile(path));
+    }
+
+    [Fact]
+    public void AFinalLineWithoutANewlineStillCounts()
+    {
+        // 쓰는 중인 파일은 마지막 줄에 개행이 없을 수 있다. StreamReader.ReadLine 과
+        // 같은 동작을 보존한다.
+        var path = Path.Combine(_dir, "noeol.jsonl");
+        File.WriteAllText(path, Line("msg_1", "claude-opus-5", 1_000_000));   // 개행 없음
+
+        Assert.Equal(25m, new TranscriptCostScanner().ScanFile(path));
+    }
+
+    [Fact]
+    public void HandlesLfOnlyLineEndings()
+    {
+        // WriteAllLines 는 CRLF 를 쓴다. LF 전용 파일도 같은 결과여야 한다.
+        var path = Path.Combine(_dir, "lf.jsonl");
+        File.WriteAllText(path, Line("msg_1", "claude-opus-5", 1_000_000) + "\n"
+                                + Line("msg_2", "claude-opus-5", 1_000_000) + "\n");
+
+        Assert.Equal(50m, new TranscriptCostScanner().ScanFile(path));
+    }
+
+    [Fact]
+    public void SameScannerInstanceHandlesManyFilesInARow()
+    {
+        // UsageTracker 는 한 인스턴스로 수백 파일을 연속 스캔한다 — 내부 버퍼
+        // 재사용이 파일 간 상태를 오염시키면 안 된다.
+        var scanner = new TranscriptCostScanner();
+        var a = WriteFile("seq-a.jsonl", Line("msg_1", "claude-opus-5", 1_000_000));
+        var b = WriteFile("seq-b.jsonl", Line("msg_1", "claude-opus-5", 2_000_000));
+
+        Assert.Equal(25m, scanner.ScanFile(a));
+        Assert.Equal(50m, scanner.ScanFile(b));   // 같은 id 지만 다른 파일 — 별개로 센다
+    }
 }
