@@ -218,9 +218,13 @@ internal sealed class PetHost
                     using var doc = JsonDocument.Parse(File.ReadAllText(file));
                     var root = doc.RootElement;
 
-                    // 알림을 해당 세션의 상태 머신으로 보낸다.
+                    // quota_auto_resume_fired 는 세션에 속하지 않는 전역 신호라 먼저
+                    // 가로채고, 그 외는 해당 세션의 상태 머신으로 보낸다.
                     // 세션을 알 수 없으면 무시한다 — 엉뚱한 세션에 대기 신호를 붙이면 안 된다.
-                    if (root.TryGetProperty("notificationType", out var type))
+                    // notificationType 이 문자열이 아니면(예: 손상된 알림 파일) GetString()이
+                    // 예외를 던져 삭제까지 건너뛰고 매초 재시도하게 되므로 ValueKind 를 먼저 본다.
+                    if (root.TryGetProperty("notificationType", out var type)
+                        && type.ValueKind == JsonValueKind.String)
                     {
                         var typeName = type.GetString() ?? "";
 
